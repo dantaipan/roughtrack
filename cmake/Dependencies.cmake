@@ -10,7 +10,16 @@ FetchContent_Declare(Catch2
     GIT_TAG v3.16.1
     GIT_SHALLOW TRUE)
 
-FetchContent_MakeAvailable(JUCE Catch2)
+# SOURCE_SUBDIR points nowhere so only the sources arrive: the project's own
+# CMakeLists builds its tools, and has no library target to link.
+FetchContent_Declare(NeuralAmpModelerCore
+    GIT_REPOSITORY https://github.com/sdatkinson/NeuralAmpModelerCore.git
+    GIT_TAG v0.6.0
+    GIT_SHALLOW TRUE
+    GIT_SUBMODULES Dependencies/eigen
+    SOURCE_SUBDIR no-cmake-project)
+
+FetchContent_MakeAvailable(JUCE Catch2 NeuralAmpModelerCore)
 
 # JUCE modules are INTERFACE libraries whose sources compile into every target
 # that links them. Compiling them once here stops the engine, app and tests each
@@ -40,3 +49,19 @@ target_include_directories(rifftrack_juce
 
 target_compile_definitions(rifftrack_juce
     INTERFACE $<TARGET_PROPERTY:rifftrack_juce,COMPILE_DEFINITIONS>)
+
+# NAM's model types register themselves from static objects that nothing refers
+# to, so consumers link the whole archive or they'd be dropped.
+file(GLOB rifftrack_nam_sources CONFIGURE_DEPENDS
+    ${neuralampmodelercore_SOURCE_DIR}/NAM/*.cpp
+    ${neuralampmodelercore_SOURCE_DIR}/NAM/wavenet/*.cpp)
+
+add_library(rifftrack_nam STATIC ${rifftrack_nam_sources})
+
+target_include_directories(rifftrack_nam SYSTEM
+    PUBLIC
+        ${neuralampmodelercore_SOURCE_DIR}
+        ${neuralampmodelercore_SOURCE_DIR}/Dependencies/eigen
+        ${neuralampmodelercore_SOURCE_DIR}/Dependencies/nlohmann)
+
+target_compile_definitions(rifftrack_nam PUBLIC NAM_SAMPLE_FLOAT)

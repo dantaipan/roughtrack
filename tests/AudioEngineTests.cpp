@@ -155,6 +155,92 @@ TEST_CASE ("Recording refuses to start without what it needs")
     }
 }
 
+TEST_CASE ("A take just recorded plays back after Return")
+{
+    test::TempDirectory temp;
+
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+    engine.prepare (sampleRate, blockSize);
+    engine.setRecordingLatency (262);
+    engine.setTrackArmed (0, true);
+    engine.setTrackInput (0, 0, 1);
+
+    std::vector<float> input ((size_t) blockSize, 0.25f), left ((size_t) blockSize), right ((size_t) blockSize);
+    const float* inputs[] { input.data() };
+    float* outputs[] { left.data(), right.data() };
+
+    REQUIRE (engine.record().wasOk());
+
+    for (int block = 0; block < 2000; ++block)
+        engine.processBlock (inputs, 1, outputs, 2, blockSize);
+
+    engine.stop();
+    engine.setPosition (0);
+
+    std::fill (input.begin(), input.end(), 0.0f);
+
+    SECTION ("with the track still armed")
+    {
+        REQUIRE (engine.play());
+    }
+
+    SECTION ("with the track disarmed")
+    {
+        engine.setTrackArmed (0, false);
+        REQUIRE (engine.play());
+    }
+
+    engine.processBlock (inputs, 1, outputs, 2, blockSize);
+
+    CHECK (left[0] == Catch::Approx (0.25f).margin (1.0e-3));
+    CHECK (right[0] == Catch::Approx (0.25f).margin (1.0e-3));
+}
+
+TEST_CASE ("A take stays where it was recorded on the timeline")
+{
+    test::TempDirectory temp;
+    constexpr int blocksBeforeRecording = 1000;
+
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+    engine.prepare (sampleRate, blockSize);
+    engine.setRecordingLatency (0);
+    engine.setTrackArmed (0, true);
+    engine.setTrackInput (0, 0, 1);
+
+    std::vector<float> input ((size_t) blockSize, 0.0f), left ((size_t) blockSize), right ((size_t) blockSize);
+    const float* inputs[] { input.data() };
+    float* outputs[] { left.data(), right.data() };
+
+    const auto run = [&] (int numBlocks)
+    {
+        for (int block = 0; block < numBlocks; ++block)
+            engine.processBlock (inputs, 1, outputs, 2, blockSize);
+    };
+
+    REQUIRE (engine.play());
+    run (blocksBeforeRecording);
+    engine.stop();
+
+    std::fill (input.begin(), input.end(), 0.25f);
+    REQUIRE (engine.record().wasOk());
+    run (500);
+    engine.stop();
+    std::fill (input.begin(), input.end(), 0.0f);
+
+    CHECK (engine.getTake (0).startSample == blocksBeforeRecording * blockSize);
+
+    engine.setPosition (0);
+    REQUIRE (engine.play());
+
+    run (1);
+    CHECK (left[0] == 0.0f);
+
+    run (blocksBeforeRecording + 3);
+    CHECK (left[0] == Catch::Approx (0.25f).margin (1.0e-3));
+}
+
 TEST_CASE ("A new take never overwrites an earlier one")
 {
     test::TempDirectory temp;
@@ -243,7 +329,7 @@ TEST_CASE ("Seven tracks mix with gain, mute and solo")
     {
         engine.setPosition (0);
         REQUIRE (engine.play());
-        device.run (1);
+        device.run (3);
         engine.stop();
         return device.outputLeft[10];
     };

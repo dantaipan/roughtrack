@@ -24,6 +24,13 @@ TrackStrip::TrackStrip (rifftrack::AudioEngine& engineToControl, int trackIndex)
     muteButton.onClick = [this] { engine.setTrackMuted (index, muteButton.getToggleState()); };
     soloButton.onClick = [this] { engine.setTrackSoloed (index, soloButton.getToggleState()); };
 
+    channelButton.onClick = [this]
+    {
+        if (onChannelClick != nullptr)
+            onChannelClick();
+    };
+    addAndMakeVisible (channelButton);
+
     inputSelector.onChange = [this] { applySelectedInput(); };
     addAndMakeVisible (inputSelector);
 
@@ -46,6 +53,37 @@ TrackStrip::TrackStrip (rifftrack::AudioEngine& engineToControl, int trackIndex)
     panSlider.setDoubleClickReturnValue (true, 0.0);
     panSlider.onValueChange = [this] { engine.setTrackPan (index, (float) panSlider.getValue()); };
     addAndMakeVisible (panSlider);
+
+    for (int slot = 0; slot < rifftrack::numInsertSlots; ++slot)
+    {
+        auto& button = insertButtons[(size_t) slot];
+        button.onInsertClick = [this, slot, &button] (bool wantsMenu)
+        {
+            if (onInsertClick != nullptr)
+                onInsertClick (slot, wantsMenu, button);
+        };
+        addAndMakeVisible (button);
+        showInsert (slot, {}, false);
+    }
+}
+
+void TrackStrip::showChannelActive (bool hasAmp)
+{
+    channelButton.setColour (juce::TextButton::buttonColourId,
+                             hasAmp ? juce::Colours::darkslateblue : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+}
+
+void TrackStrip::showInsert (int slot, const juce::String& pluginName, bool bypassed)
+{
+    auto& button = insertButtons[(size_t) slot];
+    const auto isEmpty = pluginName.isEmpty();
+
+    button.setButtonText (isEmpty ? juce::String ("+ Insert") : pluginName);
+    button.setTooltip (isEmpty ? "Add a plugin" : "Click to open, right-click for options");
+    button.setAlpha (isEmpty || bypassed ? 0.5f : 1.0f);
+    button.setColour (juce::TextButton::buttonColourId,
+                      isEmpty || bypassed ? getLookAndFeel().findColour (juce::TextButton::buttonColourId)
+                                          : juce::Colours::darkslateblue);
 }
 
 void TrackStrip::setUpToggle (juce::TextButton& button, juce::Colour onColour)
@@ -65,8 +103,36 @@ void TrackStrip::setInputChannels (int numInputChannels)
     if (numInputChannels >= 2)
         inputSelector.addItem ("Stereo 1-2", stereoInputId);
 
-    if (numInputChannels > 0)
+    showEngineInput();
+}
+
+void TrackStrip::showEngineInput()
+{
+    const auto settings = engine.getTrackSettings (index);
+    const auto id = settings.inputChannels > 1 ? stereoInputId : settings.firstInput + 1;
+
+    if (inputSelector.indexOfItemId (id) >= 0)
+        inputSelector.setSelectedId (id, juce::sendNotificationSync);
+    else if (inputSelector.getNumItems() > 0)
         inputSelector.setSelectedId (1, juce::sendNotificationSync);
+}
+
+void TrackStrip::clearArm()
+{
+    armButton.setToggleState (false, juce::dontSendNotification);
+}
+
+void TrackStrip::refreshFromEngine()
+{
+    const auto settings = engine.getTrackSettings (index);
+
+    monitorButton.setToggleState (settings.monitoring, juce::dontSendNotification);
+    muteButton.setToggleState (settings.muted, juce::dontSendNotification);
+    soloButton.setToggleState (settings.soloed, juce::dontSendNotification);
+    gainSlider.setValue (juce::Decibels::gainToDecibels (settings.gain, -60.0f), juce::dontSendNotification);
+    panSlider.setValue (settings.pan, juce::dontSendNotification);
+
+    showEngineInput();
 }
 
 void TrackStrip::applySelectedInput()
@@ -100,6 +166,8 @@ void TrackStrip::paint (juce::Graphics& g)
 void TrackStrip::resized()
 {
     auto area = getLocalBounds().reduced (0, 4);
+    auto insertRow = area.removeFromBottom (area.getHeight() / 2 - 2);
+    area.removeFromBottom (4);
 
     const auto take = [&area] (int width)
     {
@@ -118,4 +186,14 @@ void TrackStrip::resized()
     meterBounds = area.removeFromRight (120).reduced (0, 8);
     area.removeFromRight (6);
     gainSlider.setBounds (area);
+
+    channelButton.setBounds (insertRow.removeFromLeft (76));
+    insertRow.removeFromLeft (6);
+    const auto insertWidth = (insertRow.getWidth() - (rifftrack::numInsertSlots - 1) * 6) / rifftrack::numInsertSlots;
+
+    for (auto& button : insertButtons)
+    {
+        button.setBounds (insertRow.removeFromLeft (insertWidth));
+        insertRow.removeFromLeft (6);
+    }
 }

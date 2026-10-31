@@ -3,11 +3,16 @@ juce_add_gui_app(RiffTrack
     COMPANY_NAME "Dan Mullins"
     BUNDLE_ID "com.danmullins.rifftrack"
     MICROPHONE_PERMISSION_ENABLED TRUE
-    MICROPHONE_PERMISSION_TEXT "RiffTrack records from your audio interface inputs.")
+    MICROPHONE_PERMISSION_TEXT "RiffTrack records from your audio interface inputs."
+    PLIST_TO_MERGE "<plist><dict><key>NSDocumentsFolderUsageDescription</key><string>Plugins you load in RiffTrack, such as TONEX and AmpliTube, keep their presets and tones in your Documents folder.</string></dict></plist>")
 
 target_sources(RiffTrack PRIVATE
+    source/ChannelWindow.cpp
     source/Main.cpp
     source/MainComponent.cpp
+    source/ParameterPanel.cpp
+    source/PluginWindow.cpp
+    source/TimelineView.cpp
     source/TrackStrip.cpp)
 
 target_compile_definitions(RiffTrack PRIVATE

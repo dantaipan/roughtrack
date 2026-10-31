@@ -6,6 +6,7 @@ namespace rifftrack
 {
 
 inline constexpr int numTracks = 7;
+inline constexpr int numInsertSlots = 4;
 
 inline constexpr std::array<const char*, numTracks> trackNames { "Drums",
                                                                  "Bass",

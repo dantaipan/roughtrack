@@ -12,6 +12,8 @@ namespace
 {
 constexpr int minimumBufferCapacity = 8192;
 constexpr float clickGain = 0.5f;
+constexpr double fallbackSampleRate = 48000.0;
+constexpr int fallbackBlockSize = 512;
 
 using ScopedStateLock = juce::SpinLock::ScopedLockType;
 using ScopedStateTryLock = juce::SpinLock::ScopedTryLockType;
@@ -63,13 +65,24 @@ void AudioEngine::prepare (double sampleRate, int maximumBlockSize)
 {
     const auto capacity = juce::jmax (minimumBufferCapacity, maximumBlockSize);
 
-    const ScopedStateLock lock (stateLock);
-    currentSampleRate = sampleRate;
-    bufferCapacity = capacity;
-    trackBuffer.setSize (2, capacity);
-    mixBuffer.setSize (2, capacity);
-    silence.setSize (1, capacity);
-    silence.clear();
+    {
+        const ScopedStateLock lock (stateLock);
+        currentSampleRate = sampleRate;
+        bufferCapacity = capacity;
+        preparedBlockSize = maximumBlockSize;
+        trackBuffer.setSize (2, capacity);
+        mixBuffer.setSize (2, capacity);
+        silence.setSize (1, capacity);
+        silence.clear();
+    }
+
+    for (auto& track : tracks)
+    {
+        track.inserts.prepare (sampleRate, maximumBlockSize);
+        track.channel.prepare (sampleRate, capacity);
+    }
+
+    aux.prepare (sampleRate, capacity);
 }
 
 void AudioEngine::processBlock (const float* const* inputs,
@@ -100,6 +113,7 @@ void AudioEngine::processBlock (const float* const* inputs,
     }
 
     mixBuffer.clear (0, numSamples);
+    aux.clearSends (numSamples);
 
     auto anySoloed = false;
 
@@ -108,6 +122,8 @@ void AudioEngine::processBlock (const float* const* inputs,
 
     for (auto& track : tracks)
         processTrack (track, inputs, numInputs, numSamples, anySoloed);
+
+    aux.addReturns (mixBuffer.getWritePointer (0), mixBuffer.getWritePointer (1), numSamples, tempo.load());
 
     const auto running = state.load() != TransportState::stopped;
     const auto timeline = position.load();
@@ -175,6 +191,11 @@ void AudioEngine::processTrack (Track& track,
         juce::FloatVectorOperations::add (right, inputRight, numSamples);
     }
 
+    // Everything keeps running on a muted track so tails and timing carry on.
+    track.channel.processAmp (left, right, numSamples);
+    track.inserts.process (left, right, numSamples);
+    track.channel.processChannel (left, right, numSamples);
+
     if (isOutputSilenced (track, anySoloed))
         return;
 
@@ -188,6 +209,12 @@ void AudioEngine::processTrack (Track& track,
 
     mixBuffer.addFrom (0, 0, left, numSamples);
     mixBuffer.addFrom (1, 0, right, numSamples);
+
+    aux.addToSends (left,
+                    right,
+                    track.channel.getParameter (ChannelParameter::sendReverb),
+                    track.channel.getParameter (ChannelParameter::sendDelay),
+                    numSamples);
 
     raisePeak (track.peak, trackBuffer.getMagnitude (0, numSamples));
 }
@@ -215,8 +242,10 @@ void AudioEngine::prepareTracksToPlay()
 {
     const auto timeline = position.load();
 
+    // Reading a track ahead by its plugins' latency brings their output back in
+    // time without delaying everything else, including what's being monitored.
     for (auto& track : tracks)
-        track.player->prepareToPlay (timeline);
+        track.player->prepareToPlay (timeline + track.inserts.getLatencySamples());
 }
 
 bool AudioEngine::play()
@@ -299,10 +328,19 @@ void AudioEngine::finishTakes()
         const auto file = track.writer->getFile();
         track.writer.reset();
 
-        const auto start = recordingStart - recordingLatency.load();
+        const std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
 
-        if (track.player->load (file, start))
-            track.take = { file, start };
+        if (reader == nullptr || reader->lengthInSamples <= 0)
+            continue;
+
+        Clip clip;
+        clip.file = file;
+        clip.timelineStart = recordingStart - recordingLatency.load();
+        clip.length = reader->lengthInSamples;
+        clip.fileLength = reader->lengthInSamples;
+
+        track.clips.push_back (clip);
+        track.player->setClips (track.clips);
     }
 }
 
@@ -325,20 +363,248 @@ void AudioEngine::setTrackInput (int track, int firstInputChannel, int numChanne
     tracks[(size_t) track].inputChannels = numChannels;
 }
 
+TrackSettings AudioEngine::getTrackSettings (int track) const
+{
+    const auto& source = tracks[(size_t) track];
+
+    TrackSettings settings;
+    settings.gain = source.gain.load();
+    settings.pan = source.pan.load();
+    settings.muted = source.muted.load();
+    settings.soloed = source.soloed.load();
+    settings.monitoring = source.monitoring.load();
+    settings.firstInput = source.firstInput.load();
+    settings.inputChannels = source.inputChannels.load();
+    return settings;
+}
+
+void AudioEngine::setTrackSettings (int track, const TrackSettings& settings)
+{
+    setTrackGain (track, settings.gain);
+    setTrackPan (track, settings.pan);
+    setTrackMuted (track, settings.muted);
+    setTrackSoloed (track, settings.soloed);
+    setTrackMonitoring (track, settings.monitoring);
+    setTrackInput (track, settings.firstInput, settings.inputChannels);
+}
+
 bool AudioEngine::loadTake (int track, const juce::File& file, juce::int64 startSample)
 {
     auto& target = tracks[(size_t) track];
 
-    if (state.load() != TransportState::stopped || ! target.player->load (file, startSample))
+    if (state.load() != TransportState::stopped)
         return false;
 
-    target.take = { file, startSample };
-    return true;
+    const std::unique_ptr<juce::AudioFormatReader> reader (formatManager.createReaderFor (file));
+
+    if (reader == nullptr)
+        return false;
+
+    Clip clip;
+    clip.file = file;
+    clip.timelineStart = startSample;
+    clip.length = reader->lengthInSamples;
+    clip.fileLength = reader->lengthInSamples;
+
+    target.clips = { clip };
+    return target.player->setClips (target.clips);
 }
 
 Take AudioEngine::getTake (int track) const
 {
-    return tracks[(size_t) track].take;
+    const auto& clips = tracks[(size_t) track].clips;
+
+    if (clips.empty())
+        return {};
+
+    return { clips.back().file, clips.back().timelineStart };
+}
+
+const ClipList& AudioEngine::getClips (int track) const
+{
+    return tracks[(size_t) track].clips;
+}
+
+juce::Result AudioEngine::setClips (int track, const ClipList& clips)
+{
+    if (state.load() != TransportState::stopped)
+        return juce::Result::fail ("Stop the transport first.");
+
+    auto& target = tracks[(size_t) track];
+    target.clips = clips;
+    target.player->setClips (clips);
+    return juce::Result::ok();
+}
+
+juce::Result AudioEngine::setInsert (int track,
+                                     int slot,
+                                     std::unique_ptr<juce::AudioPluginInstance> instance,
+                                     const juce::MemoryBlock& pluginState)
+{
+    if (state.load() != TransportState::stopped)
+        return juce::Result::fail ("Stop the transport first.");
+
+    auto& chain = tracks[(size_t) track].inserts;
+
+    if (instance != nullptr)
+        InsertChain::configure (*instance,
+                                currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate,
+                                preparedBlockSize > 0 ? preparedBlockSize : fallbackBlockSize,
+                                &playHead,
+                                pluginState);
+
+    std::unique_ptr<juce::AudioPluginInstance> previous;
+
+    {
+        const ScopedStateLock lock (stateLock);
+        previous = chain.exchange (slot, std::move (instance));
+    }
+
+    return juce::Result::ok();
+}
+
+juce::Result AudioEngine::removeInsert (int track, int slot)
+{
+    return setInsert (track, slot, nullptr);
+}
+
+juce::Result AudioEngine::loadAmp (int track, const juce::File& file)
+{
+    auto loaded = AmpModel::load (file,
+                                  currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate,
+                                  bufferCapacity > 0 ? bufferCapacity : fallbackBlockSize);
+
+    if (loaded.model == nullptr)
+        return juce::Result::fail (loaded.error);
+
+    auto& channel = tracks[(size_t) track].channel;
+
+    std::unique_ptr<AmpModel> previous;
+
+    {
+        const ScopedStateLock lock (stateLock);
+        previous = channel.exchangeAmp (std::move (loaded.model));
+    }
+
+    channel.setAmpFile (file);
+    return juce::Result::ok();
+}
+
+void AudioEngine::removeAmp (int track)
+{
+    auto& channel = tracks[(size_t) track].channel;
+
+    std::unique_ptr<AmpModel> previous;
+
+    {
+        const ScopedStateLock lock (stateLock);
+        previous = channel.exchangeAmp (nullptr);
+    }
+
+    channel.setAmpFile ({});
+}
+
+void AudioEngine::resetChannels()
+{
+    for (int track = 0; track < numTracks; ++track)
+    {
+        removeAmp (track);
+        tracks[(size_t) track].channel.clearCabinet();
+        tracks[(size_t) track].channel.resetParameters();
+    }
+
+    aux.resetParameters();
+}
+
+juce::AudioPluginInstance* AudioEngine::getInsert (int track, int slot) const
+{
+    return tracks[(size_t) track].inserts.get (slot);
+}
+
+void AudioEngine::setInsertBypassed (int track, int slot, bool shouldBypass)
+{
+    tracks[(size_t) track].inserts.setBypassed (slot, shouldBypass);
+}
+
+bool AudioEngine::isInsertBypassed (int track, int slot) const
+{
+    return tracks[(size_t) track].inserts.isBypassed (slot);
+}
+
+int AudioEngine::getInsertLatency (int track) const
+{
+    return tracks[(size_t) track].inserts.getLatencySamples();
+}
+
+std::unique_ptr<juce::XmlElement> AudioEngine::createInsertsXml() const
+{
+    auto xml = std::make_unique<juce::XmlElement> ("INSERTS");
+
+    for (int track = 0; track < numTracks; ++track)
+    {
+        for (int slot = 0; slot < numInsertSlots; ++slot)
+        {
+            auto* instance = getInsert (track, slot);
+
+            if (instance == nullptr)
+                continue;
+
+            juce::MemoryBlock pluginState;
+            instance->getStateInformation (pluginState);
+
+            auto* element = xml->createNewChildElement ("INSERT");
+            element->setAttribute ("track", track);
+            element->setAttribute ("slot", slot);
+            element->setAttribute ("bypassed", isInsertBypassed (track, slot));
+            element->setAttribute ("state", pluginState.toBase64Encoding());
+            element->addChildElement (instance->getPluginDescription().createXml().release());
+        }
+    }
+
+    return xml;
+}
+
+std::vector<SavedInsert> parseSavedInserts (const juce::XmlElement& xml)
+{
+    std::vector<SavedInsert> inserts;
+
+    for (auto* element : xml.getChildWithTagNameIterator ("INSERT"))
+    {
+        SavedInsert insert;
+        insert.track = element->getIntAttribute ("track", -1);
+        insert.slot = element->getIntAttribute ("slot", -1);
+        insert.bypassed = element->getBoolAttribute ("bypassed");
+        insert.state.fromBase64Encoding (element->getStringAttribute ("state"));
+
+        const auto* description = element->getFirstChildElement();
+
+        if (juce::isPositiveAndBelow (insert.track, numTracks) && juce::isPositiveAndBelow (insert.slot, numInsertSlots)
+            && description != nullptr && insert.description.loadFromXml (*description))
+            inserts.push_back (std::move (insert));
+    }
+
+    return inserts;
+}
+
+juce::Optional<juce::AudioPlayHead::PositionInfo> AudioEngine::TransportPlayHead::getPosition() const
+{
+    const auto samples = engine.position.load();
+    const auto currentState = engine.state.load();
+
+    PositionInfo info;
+    info.setBpm (engine.tempo.load());
+    info.setTimeInSamples (samples);
+    info.setIsPlaying (currentState != TransportState::stopped);
+    info.setIsRecording (currentState == TransportState::recording);
+
+    if (engine.currentSampleRate > 0.0)
+    {
+        const auto seconds = (double) samples / engine.currentSampleRate;
+        info.setTimeInSeconds (seconds);
+        info.setPpqPosition (seconds * engine.tempo.load() / 60.0);
+    }
+
+    return info;
 }
 
 float AudioEngine::takeTrackPeak (int track) noexcept

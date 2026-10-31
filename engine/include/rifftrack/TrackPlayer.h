@@ -1,16 +1,19 @@
 #pragma once
 
+#include "rifftrack/Clip.h"
+
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include <atomic>
+#include <map>
 #include <memory>
 
 namespace rifftrack
 {
 
-/** Streams one take from disk so the audio thread never touches the file.
+/** Streams a track's clips from disk so the audio thread never touches the files.
 
-    load(), clear() and prepareToPlay() must only be called while the audio
+    setClips(), load(), clear() and prepareToPlay() must only be called while the audio
     thread isn't calling pull().
 */
 class TrackPlayer final : private juce::TimeSliceClient
@@ -25,10 +28,13 @@ public:
     bool load (const juce::File& file, juce::int64 startSample);
     void clear();
 
+    /** Returns false if any clip's file can't be read. That clip plays as silence. */
+    bool setClips (const ClipList&);
+
     /** Fills the read-ahead buffer so playback can start immediately. */
     void prepareToPlay (juce::int64 timelinePosition);
 
-    /** Copies the next samples into both channels, or silence if there's no take. */
+    /** Copies the next samples into both channels, or silence if there are no clips. */
     void pull (float* left, float* right, int numSamples) noexcept;
 
     juce::int64 getUnderrunSamples() const noexcept { return underrunSamples.load(); }
@@ -41,14 +47,14 @@ private:
     juce::TimeSliceThread& thread;
     juce::AudioFormatManager& formatManager;
 
-    std::unique_ptr<juce::AudioFormatReader> reader;
-    juce::int64 takeStart = 0;
+    ClipList clips;
+    std::map<juce::File, std::shared_ptr<juce::AudioFormatReader>> readers;
     juce::int64 readPosition = 0;
 
     juce::AudioBuffer<float> ring;
     juce::AbstractFifo fifo;
 
-    std::atomic<bool> hasTake { false };
+    std::atomic<bool> hasClips { false };
     std::atomic<juce::int64> samplesToSkip { 0 };
     std::atomic<juce::int64> underrunSamples { 0 };
 };
