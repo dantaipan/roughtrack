@@ -26,8 +26,12 @@ class MainComponent final : public juce::Component,
 public:
     /** A session folder given here overrides the last one used, and isn't remembered. */
     explicit MainComponent (const juce::File& sessionToOpen = {});
+
+    /** The narrowest window that fits the whole toolbar. */
+    static constexpr int minimumWidth = 1390;
     ~MainComponent() override;
 
+    void paint (juce::Graphics&) override;
     void resized() override;
     bool keyPressed (const juce::KeyPress&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
@@ -52,6 +56,7 @@ private:
     void updateStatus();
 
     void showAudioSettings();
+    void restoreChosenAudioDevice();
     void confirmCalibration();
     void finishCalibration();
     juce::String latencyKey() const;
@@ -109,6 +114,7 @@ private:
     juce::TextButton clickButton { "Click" }, audioSettingsButton { "Audio" }, calibrateButton { "Calibrate" };
     juce::TextButton tunerButton { "Tuner" }, consoleButton { "Console" };
     juce::Slider tempoSlider;
+    std::vector<juce::Rectangle<int>> toolbarDividers;
     juce::Label positionLabel, statusLabel, takeWarningLabel, pluginLabel;
 
     std::array<std::unique_ptr<TrackStrip>, rifftrack::maxTracks> strips;
@@ -136,4 +142,6 @@ private:
 
     bool calibrating = false;
     bool latencyIsCalibrated = false;
+    juce::Component::SafePointer<juce::DialogWindow> audioSettingsWindow;
+    juce::String lastAudioRestoreFrom;
 };

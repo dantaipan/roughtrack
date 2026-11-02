@@ -73,6 +73,19 @@ std::string preferredInputDevice (const std::string& outputDevice,
     return outputHasInputs ? outputDevice : currentInputDevice;
 }
 
+bool shouldRestoreAudioDevice (const AudioDeviceChoice& chosen,
+                               const AudioDeviceChoice& current,
+                               const std::vector<std::string>& availableOutputDevices)
+{
+    if (chosen.outputDevice.empty()
+        || std::find (availableOutputDevices.begin(), availableOutputDevices.end(), chosen.outputDevice) == availableOutputDevices.end())
+        return false;
+
+    return current.outputDevice != chosen.outputDevice
+           || (chosen.bufferSize > 0 && current.bufferSize != chosen.bufferSize)
+           || (chosen.sampleRate > 0.0 && ! juce::approximatelyEqual (current.sampleRate, chosen.sampleRate));
+}
+
 double bufferLatencyMs (int bufferSizeSamples, double sampleRate)
 {
     return sampleRate > 0.0 ? 1000.0 * bufferSizeSamples / sampleRate : 0.0;

@@ -496,6 +496,37 @@ TEST_CASE ("Recording a keyboard makes a clip and a MIDI file")
     CHECK (std::abs (take->notes[0].length - 480) < 4);
 }
 
+TEST_CASE ("Punching in on a MIDI track ends its part's notes and records from the playhead")
+{
+    Rig rig;
+    REQUIRE (rig.engine.setClips (rig.track, { makeMidiClip (rig.writeTake(), 0, 3840) }).wasOk());
+    rig.engine.setTrackArmed (rig.track, true);
+
+    REQUIRE (rig.engine.play());
+    rig.run (blocksFor (samplesPerBeat / 4));
+    REQUIRE (rig.synth->notesOn().size() == 1);
+
+    const auto punch = rig.engine.getPosition();
+    REQUIRE (rig.engine.record().wasOk());
+    rig.run (1);
+    CHECK (rig.synth->countNotesOff (60) >= 1);
+
+    rig.press (62);
+    rig.run (blocksFor (samplesPerBeat / 2));
+    rig.release (62);
+    rig.run (blocksFor (samplesPerBeat * 2));
+    rig.engine.stop();
+
+    // The old part's second note fell inside the punch, so it never played.
+    for (const auto& note : rig.synth->notesOn())
+        CHECK (note.message.getNoteNumber() != 64);
+
+    const auto& clips = rig.engine.getClips (rig.track);
+
+    REQUIRE (clips.size() == 2);
+    CHECK (std::abs (clips[1].timelineStart - punch * 960 / samplesPerBeat) <= 1);
+}
+
 TEST_CASE ("A recorded note is placed where the player heard it")
 {
     constexpr int latency = 1000;

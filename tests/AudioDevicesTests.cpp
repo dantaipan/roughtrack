@@ -38,3 +38,35 @@ TEST_CASE ("listAudioDevices reports usable device details")
         CHECK_FALSE (device.sampleRates.empty());
     }
 }
+
+TEST_CASE ("The chosen audio setup comes back once its device is there")
+{
+    const rifftrack::AudioDeviceChoice chosen { "Scarlett 2i2 4th Gen", 48000.0, 64 };
+    const std::vector<std::string> withInterface { "MacBook Pro Speakers", "Scarlett 2i2 4th Gen" };
+    const std::vector<std::string> withoutInterface { "MacBook Pro Speakers" };
+
+    SECTION ("nothing to do when it's already running")
+    {
+        CHECK_FALSE (rifftrack::shouldRestoreAudioDevice (chosen, chosen, withInterface));
+    }
+
+    SECTION ("the interface came back with a different buffer size")
+    {
+        CHECK (rifftrack::shouldRestoreAudioDevice (chosen, { "Scarlett 2i2 4th Gen", 48000.0, 512 }, withInterface));
+    }
+
+    SECTION ("the interface came back while the app sat on the built-in speakers")
+    {
+        CHECK (rifftrack::shouldRestoreAudioDevice (chosen, { "MacBook Pro Speakers", 48000.0, 512 }, withInterface));
+    }
+
+    SECTION ("the sample rate changed")
+    {
+        CHECK (rifftrack::shouldRestoreAudioDevice (chosen, { "Scarlett 2i2 4th Gen", 44100.0, 64 }, withInterface));
+    }
+
+    SECTION ("the fallback stays while the interface is unplugged")
+    {
+        CHECK_FALSE (rifftrack::shouldRestoreAudioDevice (chosen, { "MacBook Pro Speakers", 48000.0, 512 }, withoutInterface));
+    }
+}

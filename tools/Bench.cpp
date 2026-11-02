@@ -842,6 +842,17 @@ int runMidiCheck (const juce::StringArray& args)
     const auto bufferIndex = args.indexOf ("--buffer");
     const auto bufferSize = bufferIndex >= 0 ? args[bufferIndex + 1].getIntValue() : 64;
 
+    const auto instrumentIndex = args.indexOf ("--instrument");
+    const auto instrumentMatch = instrumentIndex >= 0 ? args[instrumentIndex + 1] : juce::String ("dls");
+
+    juce::MemoryBlock instrumentState;
+
+    // Takes the first plugin state from a session's inserts.xml.
+    if (const auto stateIndex = args.indexOf ("--state"); stateIndex >= 0)
+        if (const auto inserts = juce::parseXML (juce::File (args[stateIndex + 1])))
+            if (const auto* insert = inserts->getChildByName ("INSERT"))
+                instrumentState.fromBase64Encoding (insert->getStringAttribute ("state"));
+
     juce::AudioDeviceManager manager;
 
     if (! openDevice (manager, args, false, bufferSize))
@@ -855,11 +866,11 @@ int runMidiCheck (const juce::StringArray& args)
 
     for (auto* format : formats.getFormats())
     {
-        for (const auto& identifier : format->searchPathsForPlugins ({}, true, false))
+        for (const auto& identifier : format->searchPathsForPlugins (format->getDefaultLocationsToSearch(), true, false))
         {
             juce::OwnedArray<juce::PluginDescription> found;
 
-            if (identifier.containsIgnoreCase ("dls"))
+            if (identifier.containsIgnoreCase (instrumentMatch))
                 format->findAllTypesForFile (found, identifier);
 
             if (! found.isEmpty() && synth == nullptr)
@@ -869,7 +880,7 @@ int runMidiCheck (const juce::StringArray& args)
 
     if (synth == nullptr)
     {
-        std::cout << "Couldn't load DLSMusicDevice: " << error << std::endl;
+        std::cout << "Couldn't load " << instrumentMatch << ": " << error << std::endl;
         return 1;
     }
 
@@ -882,7 +893,7 @@ int runMidiCheck (const juce::StringArray& args)
 
     const auto track = engine.addTrack ("Keys", rifftrack::TrackType::midi);
 
-    if (const auto result = engine.setInsert (track, rifftrack::instrumentSlot, std::move (synth)); result.failed())
+    if (const auto result = engine.setInsert (track, rifftrack::instrumentSlot, std::move (synth), instrumentState); result.failed())
     {
         std::cout << result.getErrorMessage() << std::endl;
         return 1;
@@ -921,6 +932,9 @@ int runMidiCheck (const juce::StringArray& args)
 
     manager.addMidiInputDeviceCallback ({}, &engine);
     manager.addAudioCallback (&engine);
+
+    // Samplers load in the background.
+    juce::Thread::sleep (instrumentState.isEmpty() ? 0 : 4000);
 
     auto* device = manager.getCurrentAudioDevice();
     std::cout << device->getName() << ": " << device->getCurrentSampleRate() << " Hz, " << device->getCurrentBufferSizeSamples() << " samples" << std::endl;
@@ -1239,7 +1253,7 @@ int main (int argc, char** argv)
                  "       rifftrack_bench amp-check <file> [--buffer <samples>] [--instances <count>] [--lite]\n"
                  "       rifftrack_bench plugin-check [--buffer <samples>] [--name <text>]\n"
                  "       rifftrack_bench plugin-window <format> <name> [--seconds <seconds>] [--first <format> <name>]\n"
-                 "       rifftrack_bench midi-check [--device <name>] [--buffer <samples>]\n"
+                 "       rifftrack_bench midi-check [--device <name>] [--buffer <samples>] [--instrument <match>] [--state <inserts.xml>]\n"
                  "       rifftrack_bench drum-check <drums folder> [--groove <id>] [--wav <file>]\n"
                  "       rifftrack_bench build-kit <DrumGizmo kit folder> <output folder>\n";
     return 1;

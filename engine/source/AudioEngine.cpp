@@ -418,8 +418,10 @@ bool AudioEngine::play()
 
 juce::Result AudioEngine::record()
 {
-    if (state.load() != TransportState::stopped)
-        return juce::Result::fail ("Stop the transport first.");
+    const auto currentState = state.load();
+
+    if (currentState == TransportState::recording)
+        return juce::Result::fail ("Already recording.");
 
     if (currentSampleRate <= 0.0)
         return juce::Result::fail ("No audio device is running.");
@@ -427,12 +429,12 @@ juce::Result AudioEngine::record()
     if (calibrator != nullptr)
         return juce::Result::fail ("Latency calibration is running.");
 
-    auto anyArmed = false;
+    // Takes are created before the switch, because the audio thread waits while it happens.
+    std::vector<std::pair<Track*, std::unique_ptr<TakeWriter>>> audioTakes;
+    std::vector<Track*> midiTracks;
 
-    for (size_t i = 0; i < tracks.size(); ++i)
+    for (auto& track : tracks)
     {
-        auto& track = tracks[i];
-
         if (! track.armed.load() || ! track.active.load() || track.type.load() == TrackType::drums)
             continue;
 
@@ -440,43 +442,51 @@ juce::Result AudioEngine::record()
         {
             track.recordedMidi.clear();
             track.recordedMidi.reserve ((size_t) recordedMidiCapacity);
-            track.recordingMidi = true;
-            anyArmed = true;
+            midiTracks.push_back (&track);
             continue;
         }
 
         const auto name = juce::File::createLegalFileName (track.name).replace (" ", "-");
         const auto file = sessionDirectory.getNonexistentChildFile (name + "-take", ".wav", false);
+        auto writer = TakeWriter::create (file, currentSampleRate, track.inputChannels.load(), writeThread);
 
-        track.recordingFirstInput = track.firstInput.load();
-        track.recordingChannels = track.inputChannels.load();
-        track.writer = TakeWriter::create (file, currentSampleRate, track.recordingChannels, writeThread);
-
-        if (track.writer == nullptr)
-        {
-            for (auto& other : tracks)
-            {
-                other.writer.reset();
-                other.recordingMidi = false;
-            }
-
+        if (writer == nullptr)
             return juce::Result::fail ("Couldn't create " + file.getFullPathName());
-        }
 
-        anyArmed = true;
+        audioTakes.emplace_back (&track, std::move (writer));
     }
 
-    if (! anyArmed)
+    if (audioTakes.empty() && midiTracks.empty())
         return juce::Result::fail ("Arm a track first.");
 
-    prepareTracksToPlay();
-    recordingStart = position.load();
-    midiRecordingStart = sampleToTick (recordingStart, 60.0 * currentSampleRate / tempo.load() / ticksPerBeat);
+    // Punching in leaves playback running; only the armed tracks switch over.
+    if (currentState == TransportState::stopped)
+        prepareTracksToPlay();
+
     dropoutsAtRecordingStart = dropoutDetector.getDropouts();
     droppedSamplesAtRecordingStart = droppedSamples.load();
     lastTakeDropouts = 0;
     lastTakeDroppedSamples = 0;
-    setState (TransportState::recording);
+
+    const ScopedStateLock lock (stateLock);
+
+    for (auto& [track, writer] : audioTakes)
+    {
+        track->recordingFirstInput = track->firstInput.load();
+        track->recordingChannels = track->inputChannels.load();
+        track->writer = std::move (writer);
+    }
+
+    // A part the track was playing would otherwise leave its notes hanging.
+    for (auto* track : midiTracks)
+    {
+        track->recordingMidi = true;
+        track->notesNeedEnding = true;
+    }
+
+    recordingStart = position.load();
+    midiRecordingStart = sampleToTick (recordingStart, 60.0 * currentSampleRate / tempo.load() / ticksPerBeat);
+    state = TransportState::recording;
     return juce::Result::ok();
 }
 

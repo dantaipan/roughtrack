@@ -18,7 +18,7 @@ The app is built to `build/debug/app/RiffTrack_artefacts/Debug/RiffTrack.app`. B
 
 Each session is a folder in `~/Music/RiffTrack`, holding its takes, `session.xml` and `inserts.xml`. It saves automatically, and the folder can be moved.
 
-Editing never changes a recording. Takes are always dry, and clips only say which part of a take plays and when. A new recording plays over what's already there, so punching in replaces only the part it covers.
+Editing never changes a recording. Takes are always dry, and clips only say which part of a take plays and when. A new recording plays over what's already there, so punching in replaces only the part it covers. Press **Record** during playback to punch in at that moment, and **Stop** to end the take.
 
 A new session starts with one guitar track. **+ Track** adds more, up to 24. Double-click a track's name to rename it, and right-click it to delete the track. Deleting a track leaves its recordings in the session folder.
 

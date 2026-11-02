@@ -245,6 +245,105 @@ TEST_CASE ("A take stays where it was recorded on the timeline")
     CHECK (left[0] == Catch::Approx (0.25f).margin (1.0e-3));
 }
 
+TEST_CASE ("Record during playback punches in at the playhead and playback carries on")
+{
+    test::TempDirectory temp;
+    constexpr int blocksBeforePunch = 100;
+    constexpr int blocksRecorded = 50;
+
+    AudioEngine engine;
+    test::useTracks (engine);
+    engine.setSessionDirectory (temp.directory);
+    engine.prepare (sampleRate, blockSize);
+    engine.setRecordingLatency (0);
+
+    juce::AudioBuffer<float> backing (1, 48000);
+
+    for (int i = 0; i < backing.getNumSamples(); ++i)
+        backing.setSample (0, i, 0.5f);
+
+    const auto backingFile = temp.directory.getChildFile ("backing.wav");
+    test::writeWav (backingFile, backing, sampleRate);
+
+    std::vector<float> input ((size_t) blockSize, 0.25f), left ((size_t) blockSize), right ((size_t) blockSize);
+    const float* inputs[] { input.data() };
+    float* outputs[] { left.data(), right.data() };
+
+    const auto run = [&] (int numBlocks)
+    {
+        for (int block = 0; block < numBlocks; ++block)
+            engine.processBlock (inputs, 1, outputs, 2, blockSize);
+    };
+
+    SECTION ("a new track records while another plays")
+    {
+        REQUIRE (engine.loadTake (0, backingFile, 0));
+        engine.setTrackArmed (1, true);
+        engine.setTrackInput (1, 0, 1);
+
+        REQUIRE (engine.play());
+        run (blocksBeforePunch);
+        REQUIRE (engine.record().wasOk());
+        CHECK (engine.getState() == TransportState::recording);
+
+        run (blocksRecorded);
+        CHECK (left[0] == Catch::Approx (0.5f).margin (1.0e-3));
+
+        engine.stop();
+
+        const auto take = engine.getTake (1);
+        CHECK (take.startSample == blocksBeforePunch * blockSize);
+        CHECK (test::readAll (take.file).getNumSamples() == blocksRecorded * blockSize);
+        CHECK (engine.getClips (0).size() == 1);
+    }
+
+    SECTION ("an armed track stops playing its old part from the punch")
+    {
+        REQUIRE (engine.loadTake (0, backingFile, 0));
+        engine.setTrackArmed (0, true);
+        engine.setTrackInput (0, 0, 1);
+
+        REQUIRE (engine.play());
+        run (blocksBeforePunch);
+        CHECK (left[0] == Catch::Approx (0.5f).margin (1.0e-3));
+
+        REQUIRE (engine.record().wasOk());
+        run (blocksRecorded);
+        CHECK (left[0] == 0.0f);
+
+        engine.stop();
+        engine.setTrackArmed (0, false);
+
+        REQUIRE (engine.getClips (0).size() == 2);
+
+        // The new take plays over the old one where it covers it, and nowhere else.
+        engine.setPosition (0);
+        REQUIRE (engine.play());
+        run (blocksBeforePunch / 2);
+        CHECK (left[0] == Catch::Approx (0.5f).margin (1.0e-3));
+
+        run (blocksBeforePunch / 2 + blocksRecorded / 2);
+        CHECK (left[0] == Catch::Approx (0.25f).margin (1.0e-3));
+
+        run (blocksRecorded);
+        CHECK (left[0] == Catch::Approx (0.5f).margin (1.0e-3));
+    }
+
+    SECTION ("Record while recording changes nothing")
+    {
+        engine.setTrackArmed (1, true);
+        REQUIRE (engine.record().wasOk());
+        run (10);
+
+        CHECK (engine.record().failed());
+        run (10);
+        engine.stop();
+
+        CHECK (engine.getClips (1).size() == 1);
+        CHECK (engine.getTake (1).startSample == 0);
+    }
+}
+
 TEST_CASE ("A new take never overwrites an earlier one")
 {
     test::TempDirectory temp;

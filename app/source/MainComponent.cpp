@@ -27,6 +27,10 @@ constexpr int channelWidth = 104;
 constexpr int masterWidth = 124;
 constexpr int tunerHeight = 72;
 constexpr int transportButtonWidth = 66;
+constexpr int toolbarGap = 4;
+constexpr int toolbarGroupGap = 20;
+constexpr int tempoWidth = 140;
+constexpr int positionWidth = 160;
 constexpr int trackScrollBarWidth = 12;
 constexpr int linesPerWheelStep = 300;
 constexpr int rowsShownAtStart = 7;
@@ -153,6 +157,9 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
     recordButton.onClick = [this]
     {
+        if (engine.getState() == rifftrack::TransportState::recording)
+            return;
+
         for (int track = 0; track < rifftrack::maxTracks; ++track)
             clipsBeforeRecording[(size_t) track] = engine.getClips (track);
 
@@ -942,8 +949,11 @@ void MainComponent::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void MainComponent::deviceChanged()
 {
-    if (const auto state = deviceManager.createStateXml())
-        settings->setValue ("audioDevice", state.get());
+    // Only a choice made in Audio Settings is remembered. Anything else, like a
+    // fallback while the interface is unplugged, mustn't replace it.
+    if (audioSettingsWindow != nullptr || ! settings->containsKey ("audioDevice"))
+        if (const auto state = deviceManager.createStateXml())
+            settings->setValue ("audioDevice", state.get());
 
     auto* device = deviceManager.getCurrentAudioDevice();
     numInputChannels = device != nullptr ? device->getActiveInputChannels().countNumberOfSetBits() : 0;
@@ -983,7 +993,59 @@ void MainComponent::showAudioSettings()
     options.dialogTitle = "Audio Settings";
     options.componentToCentreAround = this;
     options.useNativeTitleBar = true;
-    options.launchAsync();
+    audioSettingsWindow = options.launchAsync();
+}
+
+void MainComponent::restoreChosenAudioDevice()
+{
+    auto* device = deviceManager.getCurrentAudioDevice();
+    auto* type = deviceManager.getCurrentDeviceTypeObject();
+    const auto chosenXml = settings->getXmlValue ("audioDevice");
+
+    if (audioSettingsWindow != nullptr || calibrating || type == nullptr || chosenXml == nullptr
+        || engine.getState() != rifftrack::TransportState::stopped)
+        return;
+
+    const rifftrack::AudioDeviceChoice chosen { chosenXml->getStringAttribute ("audioOutputDeviceName").toStdString(),
+                                                chosenXml->getDoubleAttribute ("audioDeviceRate"),
+                                                chosenXml->getIntAttribute ("audioDeviceBufferSize") };
+
+    const auto setup = deviceManager.getAudioDeviceSetup();
+    const rifftrack::AudioDeviceChoice current { setup.outputDeviceName.toStdString(),
+                                                 device != nullptr ? device->getCurrentSampleRate() : 0.0,
+                                                 device != nullptr ? device->getCurrentBufferSizeSamples() : 0 };
+
+    std::vector<std::string> outputs;
+
+    for (const auto& name : type->getDeviceNames (false))
+        outputs.push_back (name.toStdString());
+
+    if (! rifftrack::shouldRestoreAudioDevice (chosen, current, outputs))
+    {
+        lastAudioRestoreFrom = {};
+        return;
+    }
+
+    // One try from each state, so a device that refuses the choice isn't restarted forever.
+    const auto from = juce::String (current.outputDevice) + " " + juce::String (current.sampleRate) + " " + juce::String (current.bufferSize);
+
+    if (from == lastAudioRestoreFrom)
+        return;
+
+    lastAudioRestoreFrom = from;
+
+    auto restored = setup;
+    restored.outputDeviceName = chosenXml->getStringAttribute ("audioOutputDeviceName");
+    restored.inputDeviceName = chosenXml->getStringAttribute ("audioInputDeviceName");
+    restored.sampleRate = chosen.sampleRate;
+    restored.bufferSize = chosen.bufferSize;
+    restored.useDefaultInputChannels = true;
+    restored.useDefaultOutputChannels = true;
+
+    const auto error = deviceManager.setAudioDeviceSetup (restored, false);
+
+    showPluginMessage (error.isEmpty() ? "Back on " + restored.outputDeviceName + " at " + juce::String (chosen.bufferSize) + " samples."
+                                       : "Couldn't return to " + restored.outputDeviceName + ": " + error);
 }
 
 void MainComponent::confirmCalibration()
@@ -1043,6 +1105,7 @@ void MainComponent::timerCallback()
     {
         autosaveCountdown = autosaveTicks;
         saveSession();
+        restoreChosenAudioDevice();
     }
 
     if (calibrating && (engine.isCalibrationFinished() || deviceManager.getCurrentAudioDevice() == nullptr))
@@ -1156,25 +1219,57 @@ void MainComponent::updateStatus()
     statusLabel.setText (status, juce::dontSendNotification);
 }
 
+void MainComponent::paint (juce::Graphics& g)
+{
+    g.setColour (console::outline);
+
+    for (const auto& divider : toolbarDividers)
+        g.fillRect (divider);
+}
+
 void MainComponent::resized()
 {
     auto area = getLocalBounds().reduced (12);
 
-    auto transport = area.removeFromTop (transportHeight).reduced (0, 4);
+    auto toolbar = area.removeFromTop (transportHeight).reduced (0, 4);
+    toolbarDividers.clear();
 
-    for (auto* button : { &returnButton, &playButton, &recordButton, &stopButton, &clickButton, &tunerButton, &consoleButton,
-                          &sessionButton, &addTrackButton, &effectsButton, &undoButton, &redoButton })
+    const auto place = [&toolbar] (juce::Component& component, int width)
     {
-        button->setBounds (transport.removeFromLeft (transportButtonWidth));
-        transport.removeFromLeft (4);
-    }
+        component.setBounds (toolbar.removeFromLeft (width));
+        toolbar.removeFromLeft (toolbarGap);
+    };
 
-    tempoSlider.setBounds (transport.removeFromLeft (150));
-    calibrateButton.setBounds (transport.removeFromRight (transportButtonWidth));
-    transport.removeFromRight (4);
-    audioSettingsButton.setBounds (transport.removeFromRight (transportButtonWidth));
-    transport.removeFromRight (6);
-    positionLabel.setBounds (transport);
+    // Groups are set apart by a wider gap with a faint line in the middle.
+    const auto endGroup = [this, &toolbar]
+    {
+        toolbar.removeFromLeft (toolbarGroupGap / 2 - toolbarGap);
+        toolbarDividers.push_back (toolbar.removeFromLeft (toolbarGroupGap / 2).withWidth (1).reduced (0, 4));
+    };
+
+    for (auto* button : { &sessionButton, &undoButton, &redoButton })
+        place (*button, transportButtonWidth);
+
+    endGroup();
+
+    for (auto* button : { &returnButton, &playButton, &stopButton, &recordButton })
+        place (*button, transportButtonWidth);
+
+    place (positionLabel, positionWidth);
+    endGroup();
+
+    place (tempoSlider, tempoWidth);
+    place (clickButton, transportButtonWidth);
+    endGroup();
+
+    for (auto* button : { &addTrackButton, &consoleButton, &tunerButton, &effectsButton })
+        place (*button, transportButtonWidth);
+
+    calibrateButton.setBounds (toolbar.removeFromRight (transportButtonWidth));
+    toolbar.removeFromRight (toolbarGap);
+    audioSettingsButton.setBounds (toolbar.removeFromRight (transportButtonWidth));
+    toolbar.removeFromRight (toolbarGroupGap / 2);
+    toolbarDividers.push_back (toolbar.removeFromRight (1).reduced (0, 4));
 
     if (tuner.isVisible())
         tuner.setBounds (area.removeFromTop (tunerHeight));
