@@ -1,3 +1,4 @@
+#include "ConsoleLookAndFeel.h"
 #include "MainComponent.h"
 
 #include <iostream>
@@ -63,6 +64,9 @@ public:
             return;
         }
 
+        lookAndFeel = std::make_unique<ConsoleLookAndFeel>();
+        juce::LookAndFeel::setDefaultLookAndFeel (lookAndFeel.get());
+
         if (isSnapshot())
         {
             startSnapshot();
@@ -75,6 +79,8 @@ public:
     void shutdown() override
     {
         mainWindow.reset();
+        juce::LookAndFeel::setDefaultLookAndFeel (nullptr);
+        lookAndFeel.reset();
     }
 
 private:
@@ -89,7 +95,7 @@ private:
     }
 
     // Saves a picture of the real UI on a given session, so layout can be checked
-    // without a person at the screen: --snapshot <session folder> <png file> [track]
+    // without a person at the screen: --snapshot <session folder> <png file> [track] [console] [timeline] [tuner]
     // With a track, the picture is of that track's channel window.
     void startSnapshot()
     {
@@ -99,15 +105,22 @@ private:
 
         mainWindow = std::make_unique<MainWindow> (getApplicationName(), session);
 
-        const auto channelTrack = args.size() > 3 ? args[3].getIntValue() : -1;
+        const auto channelTrack = args[3].containsOnly ("0123456789") && args[3].isNotEmpty() ? args[3].getIntValue() : -1;
+        auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent());
+
+        if (args.contains ("console") || args.contains ("timeline"))
+            main->showConsole (args.contains ("console"));
+
+        if (args.contains ("tuner"))
+            main->showTuner (true);
 
         juce::Timer::callAfterDelay (snapshotDelayMs, [this, picture, channelTrack]
         {
             juce::Component* target = mainWindow.get();
 
             if (channelTrack >= 0)
-                if (auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
-                    target = main->showChannelWindow (channelTrack);
+                if (auto* content = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+                    target = content->showChannelWindow (channelTrack);
 
             const auto image = target->createComponentSnapshot (target->getLocalBounds());
 
@@ -120,6 +133,7 @@ private:
         });
     }
 
+    std::unique_ptr<ConsoleLookAndFeel> lookAndFeel;
     std::unique_ptr<MainWindow> mainWindow;
 };
 

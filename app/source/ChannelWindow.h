@@ -19,6 +19,7 @@ public:
     void resized() override;
 
 private:
+    bool hasSources() const;
     void chooseFile (const juce::String& title, const juce::String& patterns, std::function<void (const juce::File&)> onChosen);
     void showResult (const juce::Result&);
 

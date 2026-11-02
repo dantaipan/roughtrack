@@ -36,7 +36,12 @@
 //       Runs every third-party effect through the engine with no audio device.
 //       Compares reported latency with a measured pulse, times each block
 //       against the buffer deadline, and reloads the plugin from saved state.
+//
+//   rifftrack_bench tuner-check <take.wav>
+//       Runs the tuner over a recording as the app would, and reports each note
+//       it holds, how steady the reading is and what the analysis costs.
 
+#include "BuildDrumKit.h"
 #include "NativeViews.h"
 #include "PluginWindow.h"
 
@@ -44,6 +49,9 @@
 #include "rifftrack/AudioDevices.h"
 #include "rifftrack/AudioEngine.h"
 #include "rifftrack/PluginScanner.h"
+#include "rifftrack/Tuner.h"
+
+#include <CoreFoundation/CoreFoundation.h>
 
 #include <chrono>
 #include <cmath>
@@ -55,6 +63,7 @@ namespace
 {
 
 constexpr double benchSampleRate = 48000.0;
+constexpr int benchTracks = 7;
 constexpr int writerBlockSize = 1024;
 
 float testTone (juce::int64 sample)
@@ -210,8 +219,10 @@ int runSoak (const juce::StringArray& args)
     engine.setSessionDirectory (directory);
     engine.setMasterGain (0.0f);
 
-    for (int track = 0; track < rifftrack::numTracks; ++track)
+    for (int track = 0; track < benchTracks; ++track)
     {
+        engine.activateTrack (track, "Track " + juce::String (track + 1));
+
         const auto copy = directory.getChildFile ("track" + juce::String (track) + ".wav");
         source.copyFileTo (copy);
         engine.loadTake (track, copy, 0);
@@ -220,7 +231,7 @@ int runSoak (const juce::StringArray& args)
     const auto ampIndex = args.indexOf ("--amp");
     const auto ampsIndex = args.indexOf ("--amps");
     const auto cabinetIndex = args.indexOf ("--cabinet");
-    const auto numAmps = ampsIndex >= 0 ? args[ampsIndex + 1].getIntValue() : rifftrack::numTracks;
+    const auto numAmps = ampsIndex >= 0 ? args[ampsIndex + 1].getIntValue() : benchTracks;
 
     for (int track = 0; track < numAmps; ++track)
     {
@@ -241,7 +252,7 @@ int runSoak (const juce::StringArray& args)
 
     if (args.contains ("--full-channel"))
     {
-        for (int track = 0; track < rifftrack::numTracks; ++track)
+        for (int track = 0; track < benchTracks; ++track)
         {
             auto& channel = engine.getChannel (track);
 
@@ -252,6 +263,22 @@ int runSoak (const juce::StringArray& args)
             channel.setParameter (rifftrack::ChannelParameter::sendReverb, 0.3f);
             channel.setParameter (rifftrack::ChannelParameter::sendDelay, 0.2f);
         }
+    }
+
+    const auto drumsIndex = args.indexOf ("--drums");
+
+    if (drumsIndex >= 0)
+    {
+        engine.setDrumFolder (juce::File (args[drumsIndex + 1]));
+
+        if (const auto drums = engine.loadDrums(); drums.failed())
+        {
+            std::cout << drums.getErrorMessage() << std::endl;
+            return 1;
+        }
+
+        const auto& groove = engine.getGrooves().getGrooves().front();
+        engine.setDrumParts (engine.addTrack ("Drums", rifftrack::TrackType::drums), { { groove.id, 0, 1000, 0 } });
     }
 
     StallingCallback callback (engine);
@@ -337,6 +364,8 @@ int runOverdubCheck (const juce::StringArray& args)
 
     rifftrack::AudioEngine engine;
     engine.setSessionDirectory (directory);
+    engine.activateTrack (0, "Reference");
+    engine.activateTrack (1, "Overdub");
     manager.addAudioCallback (&engine);
 
     auto* device = manager.getCurrentAudioDevice();
@@ -559,6 +588,7 @@ int runPluginCheck (const juce::StringArray& args)
         rifftrack::AudioEngine engine;
         engine.prepare (benchSampleRate, bufferSize);
         engine.setRecordingLatency (0);
+        engine.activateTrack (0, "Bench");
         engine.setTrackArmed (0, true);
         engine.setTrackMonitoring (0, true);
 
@@ -796,6 +826,369 @@ int runScanPlugins (const juce::StringArray& args)
     return 0;
 }
 
+/** Plays notes through real CoreMIDI into macOS's own synth on a real device, with
+    the output muted: a virtual keyboard stands in for a USB one from the OS onwards.
+*/
+int runMidiCheck (const juce::StringArray& args)
+{
+    const juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    constexpr int numNotes = 16;
+    constexpr int noteSpacingMs = 125;
+    constexpr int noteLengthMs = 60;
+    constexpr double tempo = 120.0;
+    constexpr auto deviceName = "RiffTrack Check";
+
+    const auto bufferIndex = args.indexOf ("--buffer");
+    const auto bufferSize = bufferIndex >= 0 ? args[bufferIndex + 1].getIntValue() : 64;
+
+    juce::AudioDeviceManager manager;
+
+    if (! openDevice (manager, args, false, bufferSize))
+        return 1;
+
+    juce::AudioPluginFormatManager formats;
+    rifftrack::addPluginFormats (formats);
+
+    std::unique_ptr<juce::AudioPluginInstance> synth;
+    juce::String error;
+
+    for (auto* format : formats.getFormats())
+    {
+        for (const auto& identifier : format->searchPathsForPlugins ({}, true, false))
+        {
+            juce::OwnedArray<juce::PluginDescription> found;
+
+            if (identifier.containsIgnoreCase ("dls"))
+                format->findAllTypesForFile (found, identifier);
+
+            if (! found.isEmpty() && synth == nullptr)
+                synth = formats.createPluginInstance (*found[0], benchSampleRate, bufferSize, error);
+        }
+    }
+
+    if (synth == nullptr)
+    {
+        std::cout << "Couldn't load DLSMusicDevice: " << error << std::endl;
+        return 1;
+    }
+
+    const auto directory = makeWorkDirectory();
+
+    rifftrack::AudioEngine engine;
+    engine.setSessionDirectory (directory);
+    engine.setTempo (tempo);
+    engine.setMasterGain (0.0f);
+
+    const auto track = engine.addTrack ("Keys", rifftrack::TrackType::midi);
+
+    if (const auto result = engine.setInsert (track, rifftrack::instrumentSlot, std::move (synth)); result.failed())
+    {
+        std::cout << result.getErrorMessage() << std::endl;
+        return 1;
+    }
+
+    const auto keyboard = juce::MidiOutput::createNewDevice (deviceName);
+
+    if (keyboard == nullptr)
+    {
+        std::cout << "Couldn't create a virtual keyboard" << std::endl;
+        return 1;
+    }
+
+    auto connected = false;
+
+    // CoreMIDI only publishes a new device while this thread's run loop is turning.
+    for (int attempt = 0; attempt < 20 && ! connected; ++attempt)
+    {
+        CFRunLoopRunInMode (kCFRunLoopDefaultMode, 0.1, false);
+
+        for (const auto& device : juce::MidiInput::getAvailableDevices())
+        {
+            if (device.name == deviceName)
+            {
+                manager.setMidiInputDeviceEnabled (device.identifier, true);
+                connected = true;
+            }
+        }
+    }
+
+    if (! connected)
+    {
+        std::cout << "The virtual keyboard never appeared" << std::endl;
+        return 1;
+    }
+
+    manager.addMidiInputDeviceCallback ({}, &engine);
+    manager.addAudioCallback (&engine);
+
+    auto* device = manager.getCurrentAudioDevice();
+    std::cout << device->getName() << ": " << device->getCurrentSampleRate() << " Hz, " << device->getCurrentBufferSizeSamples() << " samples" << std::endl;
+
+    engine.setRecordingLatency (0);
+    engine.setTrackArmed (track, true);
+
+    const auto recorded = engine.record();
+
+    if (recorded.failed())
+    {
+        std::cout << recorded.getErrorMessage() << std::endl;
+        return 1;
+    }
+
+    std::vector<double> sentMs;
+
+    juce::Thread::sleep (200);
+    engine.takeTrackPeak (track);
+
+    for (int note = 0; note < numNotes; ++note)
+    {
+        sentMs.push_back (juce::Time::getMillisecondCounterHiRes());
+        keyboard->sendMessageNow (juce::MidiMessage::noteOn (1, 60 + note, (juce::uint8) 100));
+        juce::Thread::sleep (noteLengthMs);
+        keyboard->sendMessageNow (juce::MidiMessage::noteOff (1, 60 + note));
+        juce::Thread::sleep (noteSpacingMs - noteLengthMs);
+    }
+
+    juce::Thread::sleep (200);
+
+    const auto recordingPeak = engine.takeTrackPeak (track);
+    std::cout << "Keyboard while recording peaked at " << juce::Decibels::gainToDecibels (recordingPeak) << " dB" << std::endl;
+
+    engine.stop();
+    engine.setTrackArmed (track, false);
+
+    juce::Thread::sleep (100);
+    engine.setTrackArmed (track, true);
+    juce::Thread::sleep (100);
+    engine.takeTrackPeak (track);
+
+    keyboard->sendMessageNow (juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100));
+    juce::Thread::sleep (300);
+    keyboard->sendMessageNow (juce::MidiMessage::noteOff (1, 60));
+    juce::Thread::sleep (200);
+
+    const auto stoppedPeak = engine.takeTrackPeak (track);
+    std::cout << "Keyboard while stopped peaked at " << juce::Decibels::gainToDecibels (stoppedPeak) << " dB" << std::endl;
+
+    engine.setTrackArmed (track, false);
+
+    const auto clips = engine.getClips (track);
+
+    if (clips.empty())
+    {
+        std::cout << "Nothing was recorded" << std::endl;
+        return 1;
+    }
+
+    const auto take = rifftrack::readMidiTake (clips[0].file);
+
+    if (take == nullptr)
+    {
+        std::cout << "The take couldn't be read back" << std::endl;
+        return 1;
+    }
+
+    const auto msPerTick = 60000.0 / tempo / rifftrack::ticksPerBeat;
+    auto worstMs = 0.0;
+
+    for (size_t note = 0; note < take->notes.size() && note < sentMs.size(); ++note)
+    {
+        const auto takenGap = (double) (take->notes[note].tick - take->notes[0].tick) * msPerTick;
+        worstMs = juce::jmax (worstMs, std::abs (takenGap - (sentMs[note] - sentMs[0])));
+    }
+
+    std::cout << "Sent " << numNotes << " notes, took " << take->notes.size() << " in " << clips[0].file.getFileName()
+              << ", worst timing error " << worstMs << " ms" << std::endl;
+
+    engine.takeTrackPeak (track);
+    engine.setPosition (0);
+    engine.play();
+
+    auto peak = 0.0f;
+
+    for (int i = 0; i < 40; ++i)
+    {
+        juce::Thread::sleep (50);
+        peak = juce::jmax (peak, engine.takeTrackPeak (track));
+    }
+
+    engine.stop();
+    juce::Thread::sleep (100);
+
+    std::cout << "Playback through the synth peaked at " << juce::Decibels::gainToDecibels (peak) << " dB, CPU "
+              << manager.getCpuUsage() * 100.0 << "%, dropouts " << engine.getStats().dropouts << std::endl;
+
+    manager.removeMidiInputDeviceCallback ({}, &engine);
+    manager.removeAudioCallback (&engine);
+
+    return (int) take->notes.size() == numNotes && peak > 0.0f && recordingPeak > 0.0f && stoppedPeak > 0.0f ? 0 : 1;
+}
+
+/** Plays every groove through the engine, for levels and cost, and can save one. */
+int runDrumCheck (const juce::StringArray& args)
+{
+    const juce::ScopedJuceInitialiser_GUI juceInitialiser;
+
+    constexpr int blockSize = 64;
+    constexpr double sampleRate = 48000.0;
+
+    rifftrack::AudioEngine engine;
+    engine.setDrumFolder (juce::File (args[2]));
+    engine.prepare (sampleRate, blockSize);
+
+    const auto loadStartMs = juce::Time::getMillisecondCounterHiRes();
+    const auto loaded = engine.loadDrums();
+
+    if (loaded.failed())
+    {
+        std::cout << loaded.getErrorMessage() << std::endl;
+        return 1;
+    }
+
+    const auto loadMs = juce::Time::getMillisecondCounterHiRes() - loadStartMs;
+    const auto track = engine.addTrack ("Drums", rifftrack::TrackType::drums);
+
+    const auto wavIndex = args.indexOf ("--wav");
+    const auto grooveIndex = args.indexOf ("--groove");
+
+    std::vector<float> left ((size_t) blockSize), right ((size_t) blockSize), input ((size_t) blockSize);
+    const float* inputs[] { input.data() };
+    float* outputs[] { left.data(), right.data() };
+
+    auto highestPeak = 0.0f;
+    auto renderedSamples = (juce::int64) 0;
+    auto renderMs = 0.0;
+    std::vector<float> rmsLevels;
+
+    for (const auto& groove : engine.getGrooves().getGrooves())
+    {
+        if (grooveIndex > 0 && groove.id != args[grooveIndex + 1])
+            continue;
+
+        engine.setTempo (groove.recordedBpm);
+        engine.setDrumParts (track, { { groove.id, 0, groove.bars, 0 } });
+        engine.setPosition (0);
+        engine.play();
+
+        const auto numSamples = (int) (groove.bars * rifftrack::beatsPerBar * 60.0 / groove.recordedBpm * sampleRate);
+        juce::AudioBuffer<float> audio (2, numSamples);
+
+        const auto startMs = juce::Time::getMillisecondCounterHiRes();
+
+        for (int done = 0; done + blockSize <= numSamples; done += blockSize)
+        {
+            engine.processBlock (inputs, 1, outputs, 2, blockSize);
+            audio.copyFrom (0, done, left.data(), blockSize);
+            audio.copyFrom (1, done, right.data(), blockSize);
+        }
+
+        renderMs += juce::Time::getMillisecondCounterHiRes() - startMs;
+        renderedSamples += numSamples;
+        engine.stop();
+
+        highestPeak = juce::jmax (highestPeak, audio.getMagnitude (0, numSamples));
+        rmsLevels.push_back (audio.getRMSLevel (0, 0, numSamples));
+
+        if (wavIndex > 0)
+        {
+            const juce::File file (args[wavIndex + 1]);
+            file.deleteFile();
+
+            std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
+            auto writer = juce::WavAudioFormat().createWriterFor (stream, juce::AudioFormatWriterOptions{}.withSampleRate (sampleRate)
+                                                                                                          .withNumChannels (2)
+                                                                                                          .withBitsPerSample (24));
+            writer->writeFromAudioSampleBuffer (audio, 0, numSamples);
+        }
+    }
+
+    if (rmsLevels.empty())
+        return 1;
+
+    std::sort (rmsLevels.begin(), rmsLevels.end());
+
+    std::cout << rmsLevels.size() << " grooves, kit loaded in " << loadMs << " ms\n"
+              << "highest peak " << juce::Decibels::gainToDecibels (highestPeak) << " dB, "
+              << "RMS " << juce::Decibels::gainToDecibels (rmsLevels.front()) << " to "
+              << juce::Decibels::gainToDecibels (rmsLevels.back()) << " dB, median "
+              << juce::Decibels::gainToDecibels (rmsLevels[rmsLevels.size() / 2]) << " dB\n"
+              << "cost " << 100.0 * (renderMs / 1000.0) / ((double) renderedSamples / sampleRate) << "% of real time" << std::endl;
+
+    return 0;
+}
+
+int runTunerCheck (const juce::File& file)
+{
+    constexpr int analysisSpacing = 2048;
+    constexpr size_t shortestRun = 4;
+
+    juce::AudioFormatManager formats;
+    formats.registerBasicFormats();
+
+    const std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+
+    if (reader == nullptr)
+        return 1;
+
+    juce::AudioBuffer<float> audio (1, (int) reader->lengthInSamples);
+    reader->read (&audio, 0, audio.getNumSamples(), 0, true, false);
+
+    rifftrack::PitchDetector detector (reader->sampleRate);
+
+    const auto reportRun = [] (int note, std::vector<double>& cents, double seconds)
+    {
+        if (cents.size() >= shortestRun)
+        {
+            std::sort (cents.begin(), cents.end());
+
+            std::cout << juce::String (seconds, 2) << " s  " << rifftrack::getTunerNoteName (note) << "  median "
+                      << juce::String (cents[cents.size() / 2], 1) << " cents, middle half spans "
+                      << juce::String (cents[cents.size() * 3 / 4] - cents[cents.size() / 4], 1) << " cents, "
+                      << cents.size() << " readings\n";
+        }
+
+        cents.clear();
+    };
+
+    auto currentNote = -1, numAnalyses = 0, numWithPitch = 0;
+    std::vector<double> cents;
+    auto analysisMs = 0.0;
+
+    for (int start = 0; start + detector.getWindowSize() <= audio.getNumSamples(); start += analysisSpacing)
+    {
+        const auto began = juce::Time::getMillisecondCounterHiRes();
+        const auto reading = detector.analyse (audio.getReadPointer (0, start));
+
+        analysisMs += juce::Time::getMillisecondCounterHiRes() - began;
+        ++numAnalyses;
+
+        const auto seconds = start / reader->sampleRate;
+
+        if (! reading.hasPitch || reading.note != currentNote)
+        {
+            reportRun (currentNote, cents, seconds);
+            currentNote = reading.hasPitch ? reading.note : -1;
+        }
+
+        if (reading.hasPitch)
+        {
+            cents.push_back (reading.cents);
+            ++numWithPitch;
+        }
+    }
+
+    reportRun (currentNote, cents, (double) audio.getNumSamples() / reader->sampleRate);
+
+    const auto msPerAnalysis = analysisMs / juce::jmax (1, numAnalyses);
+
+    std::cout << numWithPitch << " of " << numAnalyses << " analyses found a note\n"
+              << juce::String (msPerAnalysis, 2) << " ms each, "
+              << juce::String (100.0 * msPerAnalysis / 1000.0 / (analysisSpacing / reader->sampleRate), 2) << "% of one core" << std::endl;
+
+    return 0;
+}
+
 } // namespace
 
 int main (int argc, char** argv)
@@ -826,13 +1219,28 @@ int main (int argc, char** argv)
     if (args[1] == "plugin-window" && args.size() >= 4)
         return runPluginWindow (args);
 
+    if (args[1] == "midi-check")
+        return runMidiCheck (args);
+
+    if (args[1] == "drum-check" && args.size() >= 3)
+        return runDrumCheck (args);
+
+    if (args[1] == "tuner-check" && args.size() == 3)
+        return runTunerCheck (juce::File (args[2]));
+
+    if (args[1] == "build-kit" && args.size() == 4)
+        return runBuildDrumKit (juce::File (args[2]), juce::File (args[3]));
+
     std::cout << "usage: rifftrack_bench crash-writer <file>\n"
-                 "       rifftrack_bench soak <seconds> [--device <name>] [--buffer <samples>] [--record] [--stall-ms <ms>] [--amp <file>] [--amps <count>] [--cabinet <file>] [--full-channel]\n"
+                 "       rifftrack_bench soak <seconds> [--device <name>] [--buffer <samples>] [--record] [--stall-ms <ms>] [--amp <file>] [--amps <count>] [--cabinet <file>] [--full-channel] [--drums <folder>]\n"
                  "       rifftrack_bench overdub-check [--device <name>] [--buffer <samples>] [--input <number>]\n"
                  "       rifftrack_bench scan-plugins [--timeout <seconds>]\n"
                  "       rifftrack_bench scan-plugin <format> <identifier> <result file>\n"
                  "       rifftrack_bench amp-check <file> [--buffer <samples>] [--instances <count>] [--lite]\n"
                  "       rifftrack_bench plugin-check [--buffer <samples>] [--name <text>]\n"
-                 "       rifftrack_bench plugin-window <format> <name> [--seconds <seconds>] [--first <format> <name>]\n";
+                 "       rifftrack_bench plugin-window <format> <name> [--seconds <seconds>] [--first <format> <name>]\n"
+                 "       rifftrack_bench midi-check [--device <name>] [--buffer <samples>]\n"
+                 "       rifftrack_bench drum-check <drums folder> [--groove <id>] [--wav <file>]\n"
+                 "       rifftrack_bench build-kit <DrumGizmo kit folder> <output folder>\n";
     return 1;
 }

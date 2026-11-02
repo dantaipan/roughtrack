@@ -41,19 +41,24 @@ bool PluginLibrary::isInsertEffect (const juce::PluginDescription& plugin)
 void PluginLibrary::setPlugins (const std::vector<juce::PluginDescription>& newPlugins)
 {
     plugins.clear();
+    instruments.clear();
 
     std::copy_if (newPlugins.begin(), newPlugins.end(), std::back_inserter (plugins), isInsertEffect);
+    std::copy_if (newPlugins.begin(), newPlugins.end(), std::back_inserter (instruments), [] (const auto& plugin) { return plugin.isInstrument; });
 
-    std::sort (plugins.begin(), plugins.end(), [] (const auto& a, const auto& b)
+    for (auto* list : { &plugins, &instruments })
     {
-        const auto manufacturer = a.manufacturerName.compareIgnoreCase (b.manufacturerName);
-        const auto name = a.name.compareIgnoreCase (b.name);
+        std::sort (list->begin(), list->end(), [] (const auto& a, const auto& b)
+        {
+            const auto manufacturer = a.manufacturerName.compareIgnoreCase (b.manufacturerName);
+            const auto name = a.name.compareIgnoreCase (b.name);
 
-        if (manufacturer != 0)
-            return manufacturer < 0;
+            if (manufacturer != 0)
+                return manufacturer < 0;
 
-        return name != 0 ? name < 0 : a.pluginFormatName < b.pluginFormatName;
-    });
+            return name != 0 ? name < 0 : a.pluginFormatName < b.pluginFormatName;
+        });
+    }
 }
 
 void PluginLibrary::startScan (PluginScanCommand command, juce::File workDirectory, ScanProgress progress, ScanFinished finished)

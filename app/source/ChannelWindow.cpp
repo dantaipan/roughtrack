@@ -54,8 +54,25 @@ ChannelPanel::ChannelPanel (rifftrack::AudioEngine& engineToUse, int trackIndex,
         showResult (juce::Result::ok());
     };
 
-    setSize (panelWidth, 2 * margin + numLoadRows * rowHeight + parameters.getIdealHeight());
+    // A drum track is already a finished sound, so it has no amp or cabinet.
+    if (hasSources())
+    {
+        setSize (panelWidth, 2 * margin + numLoadRows * rowHeight + parameters.getIdealHeight());
+    }
+    else
+    {
+        for (auto* source : std::initializer_list<juce::Component*> { &ampButton, &clearAmpButton, &cabinetButton, &clearCabinetButton, &ampLabel, &cabinetLabel })
+            source->setVisible (false);
+
+        setSize (panelWidth, 2 * margin + rowHeight + parameters.getIdealHeight());
+    }
+
     refresh();
+}
+
+bool ChannelPanel::hasSources() const
+{
+    return engine.getTrackType (track) == rifftrack::TrackType::audio;
 }
 
 void ChannelPanel::chooseFile (const juce::String& title, const juce::String& patterns, std::function<void (const juce::File&)> onChosen)
@@ -109,8 +126,12 @@ void ChannelPanel::resized()
         label.setBounds (row);
     };
 
-    layoutRow (ampButton, clearAmpButton, ampLabel);
-    layoutRow (cabinetButton, clearCabinetButton, cabinetLabel);
+    if (hasSources())
+    {
+        layoutRow (ampButton, clearAmpButton, ampLabel);
+        layoutRow (cabinetButton, clearCabinetButton, cabinetLabel);
+    }
+
     messageLabel.setBounds (area.removeFromTop (rowHeight));
     parameters.setBounds (area);
 }

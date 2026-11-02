@@ -5,15 +5,22 @@ add_library(rifftrack_engine STATIC
     source/ChannelStrip.cpp
     source/Clip.cpp
     source/DropoutDetector.cpp
+    source/DrumKit.cpp
+    source/Drums.cpp
+    source/DrumSampler.cpp
     source/InsertChain.cpp
     source/LatencyCalibrator.cpp
     source/Metronome.cpp
     source/MicrophoneAccess.mm
+    source/Midi.cpp
+    source/MidiSequencer.cpp
     source/PluginLibrary.cpp
     source/PluginScanner.cpp
     source/Session.cpp
     source/TakeWriter.cpp
-    source/TrackPlayer.cpp)
+    source/TrackInstrument.cpp
+    source/TrackPlayer.cpp
+    source/Tuner.cpp)
 
 target_include_directories(rifftrack_engine PUBLIC include)
 

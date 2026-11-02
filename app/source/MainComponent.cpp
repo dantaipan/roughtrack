@@ -3,6 +3,8 @@
 #include "rifftrack/AudioDevices.h"
 #include "rifftrack/MicrophoneAccess.h"
 
+#include "ConsoleLookAndFeel.h"
+
 namespace
 {
 
@@ -20,13 +22,28 @@ constexpr int bypassMenuId = 100002;
 constexpr int removeMenuId = 100003;
 
 constexpr int autosaveTicks = 2 * timerHz;
-constexpr int stripWidth = 700;
+constexpr int stripWidth = 300;
+constexpr int channelWidth = 104;
+constexpr int masterWidth = 124;
+constexpr int tunerHeight = 72;
+constexpr int transportButtonWidth = 66;
+constexpr int trackScrollBarWidth = 12;
+constexpr int linesPerWheelStep = 300;
+constexpr int rowsShownAtStart = 7;
 constexpr double cpuWarningLevel = 0.8;
 constexpr int effectsWidth = 420;
 constexpr int firstSessionMenuId = 1;
 constexpr int newSessionMenuId = 100000;
 constexpr auto defaultSessionName = "Session";
 constexpr auto sessionFileName = "session.xml";
+
+// Ships with macOS, so a MIDI track can make a sound with nothing else installed.
+constexpr auto defaultInstrumentName = "DLSMusicDevice";
+
+juce::File drumsFolder()
+{
+    return juce::File::getSpecialLocation (juce::File::currentApplicationFile).getChildFile ("Contents/Resources/Drums");
+}
 
 juce::File sessionsFolder()
 {
@@ -104,8 +121,10 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     currentSession = sessionWasGiven ? sessionToOpen
                                      : sessionsFolder().getChildFile (settings->getValue ("lastSession", defaultSessionName));
     engine.setSessionDirectory (currentSession);
+    engine.setDrumFolder (drumsFolder());
     timeline->setSessionDirectory (currentSession);
 
+    timeline->onDrumEdit = [this] (int track, const rifftrack::DrumPartList& parts, const juce::String& name) { applyDrumEdit (track, parts, name); };
     timeline->onEdit = [this] (int track, const rifftrack::ClipList& clips, const juce::String& name) { applyClipEdit (track, clips, name); };
     timeline->onMessage = [this] (const juce::String& message) { showPluginMessage (message); };
     timeline->onSeek = [this] (juce::int64 position)
@@ -134,7 +153,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
     recordButton.onClick = [this]
     {
-        for (int track = 0; track < rifftrack::numTracks; ++track)
+        for (int track = 0; track < rifftrack::maxTracks; ++track)
             clipsBeforeRecording[(size_t) track] = engine.getClips (track);
 
         const auto result = engine.record();
@@ -152,38 +171,73 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     clickButton.setColour (juce::TextButton::buttonOnColourId, juce::Colours::orange);
     clickButton.onClick = [this] { engine.setClickEnabled (clickButton.getToggleState()); };
 
+    audioSettingsButton.setTooltip ("Audio Settings");
     audioSettingsButton.onClick = [this] { showAudioSettings(); };
+    calibrateButton.setTooltip ("Calibrate Latency");
     calibrateButton.onClick = [this] { confirmCalibration(); };
+
+    tunerButton.setClickingTogglesState (true);
+    tunerButton.setColour (juce::TextButton::buttonOnColourId, console::green);
+    tunerButton.setTooltip ("Reads the armed track's input, or the first audio track's");
+    tunerButton.onClick = [this] { showTuner (tunerButton.getToggleState()); };
+
+    consoleButton.setClickingTogglesState (true);
+    consoleButton.setColour (juce::TextButton::buttonOnColourId, console::amber);
+    consoleButton.setTooltip ("Switch between the timeline and the full console (X)");
+    consoleButton.onClick = [this] { showConsole (consoleButton.getToggleState()); };
 
     tempoSlider.setSliderStyle (juce::Slider::IncDecButtons);
     tempoSlider.setTextBoxStyle (juce::Slider::TextBoxLeft, false, 70, 24);
     tempoSlider.setRange (30.0, 300.0, 1.0);
     tempoSlider.setTextValueSuffix (" BPM");
     tempoSlider.setValue (engine.getTempo(), juce::dontSendNotification);
-    tempoSlider.onValueChange = [this] { engine.setTempo (tempoSlider.getValue()); };
+    tempoSlider.onValueChange = [this]
+    {
+        engine.setTempo (tempoSlider.getValue());
+        timeline->refresh();
+    };
 
     for (auto* component : std::initializer_list<juce::Component*> { &returnButton, &playButton, &recordButton, &stopButton,
                                                                      &clickButton, &tempoSlider, &positionLabel,
                                                                      &audioSettingsButton, &calibrateButton, &statusLabel,
-                                                                     &takeWarningLabel, &pluginLabel, &sessionButton, &effectsButton, &undoButton, &redoButton })
+                                                                     &takeWarningLabel, &pluginLabel, &sessionButton, &effectsButton, &undoButton, &redoButton,
+                                                                     &tunerButton, &consoleButton })
         addAndMakeVisible (component);
 
-    for (int track = 0; track < rifftrack::numTracks; ++track)
+    positionLabel.setColour (juce::Label::backgroundColourId, console::recess);
+    positionLabel.setColour (juce::Label::textColourId, console::amber);
+    positionLabel.setFont (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 17.0f, juce::Font::plain));
+    positionLabel.setJustificationType (juce::Justification::centred);
+    positionLabel.setTooltip ("Bar and beat, then minutes and seconds");
+
+    addAndMakeVisible (stripHolder);
+    stripHolder.setInterceptsMouseClicks (false, true);
+
+    addChildComponent (masterStrip);
+    addChildComponent (tuner);
+
+    trackScrollBar.setAutoHide (false);
+    trackScrollBar.addListener (this);
+    addAndMakeVisible (trackScrollBar);
+
+    consoleScrollBar.setAutoHide (false);
+    consoleScrollBar.addListener (this);
+    addChildComponent (consoleScrollBar);
+
+    addTrackButton.onClick = [this] { showAddTrackMenu(); };
+    addAndMakeVisible (addTrackButton);
+
+    timeline->onScrollLanes = [this] (float wheelDelta)
     {
-        strips.push_back (std::make_unique<TrackStrip> (engine, track));
-        addAndMakeVisible (*strips.back());
+        trackScrollBar.setCurrentRangeStart (trackScrollBar.getCurrentRangeStart() - (double) wheelDelta * linesPerWheelStep);
+    };
 
-        strips.back()->onInsertClick = [this, track] (int slot, bool wantsMenu, juce::Component& button)
-        {
-            insertClicked (track, slot, wantsMenu, button);
-        };
+    // Before setSize, so the first layout is already the saved view.
+    consoleButton.setToggleState (settings->getBoolValue ("consoleView"), juce::dontSendNotification);
 
-        strips.back()->onChannelClick = [this, track] { openChannelWindow (track); };
-    }
+    setSize (1400, transportHeight + TimelineView::rulerHeight + rowsShownAtStart * stripHeight + TimelineView::scrollBarHeight + 3 * statusHeight + 32);
 
-    setSize (1400, transportHeight + TimelineView::rulerHeight + rifftrack::numTracks * stripHeight + TimelineView::scrollBarHeight + 3 * statusHeight + 32);
-
-    takeWarningLabel.setColour (juce::Label::textColourId, juce::Colours::orange);
+    takeWarningLabel.setColour (juce::Label::textColourId, console::amber);
     statusLabel.setText ("Waiting for microphone access", juce::dontSendNotification);
 
     rifftrack::requestMicrophoneAccess ([safeThis = juce::Component::SafePointer (this)] (bool granted)
@@ -214,6 +268,8 @@ MainComponent::~MainComponent()
         for (auto& window : track)
             window.reset();
 
+    midiDevices = {};
+    deviceManager.removeMidiInputDeviceCallback ({}, &engine);
     deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (&engine);
     deviceManager.closeAudioDevice();
@@ -239,6 +295,11 @@ void MainComponent::startAudio()
 
     deviceManager.addAudioCallback (&engine);
     deviceManager.addChangeListener (this);
+
+    // Keyboards can come and go while the app runs.
+    deviceManager.addMidiInputDeviceCallback ({}, &engine);
+    midiDevices = juce::MidiDeviceListConnection::make ([this] { enableMidiInputs(); });
+    enableMidiInputs();
     deviceChanged();
     startTimerHz (timerHz);
 
@@ -246,6 +307,19 @@ void MainComponent::startAudio()
 
     if (! pluginLibrary->hasBeenScanned())
         startPluginScan();
+}
+
+void MainComponent::enableMidiInputs()
+{
+    juce::StringArray names;
+
+    for (const auto& device : juce::MidiInput::getAvailableDevices())
+    {
+        deviceManager.setMidiInputDeviceEnabled (device.identifier, true);
+        names.add (device.name);
+    }
+
+    midiInputNames = names.joinIntoString (", ");
 }
 
 void MainComponent::openChannelWindow (int track)
@@ -266,7 +340,7 @@ void MainComponent::openChannelWindow (int track)
             saveSession();
         };
 
-        window = std::make_unique<PanelWindow> (juce::String (rifftrack::trackNames[(size_t) track]) + " Channel", panel);
+        window = std::make_unique<PanelWindow> (engine.getTrackName (track) + " Channel", panel);
     }
 
     window->setVisible (true);
@@ -307,7 +381,7 @@ void MainComponent::closeChannelWindows()
 
 void MainComponent::refreshChannels()
 {
-    for (int track = 0; track < rifftrack::numTracks; ++track)
+    for (const auto track : engine.getTrackOrder())
         strips[(size_t) track]->showChannelActive (engine.getChannel (track).hasAmp());
 }
 
@@ -333,11 +407,17 @@ void MainComponent::loadCurrentSession()
             showPluginMessage (result.getErrorMessage());
     }
 
-    for (auto& strip : strips)
-        strip->refreshFromEngine();
+    if (engine.getTrackOrder().empty())
+        engine.addTrack (nextTrackName ("Guitar"));
+
+    for (const auto track : engine.getTrackOrder())
+        createStrip (track);
+
+    layoutTracks();
 
     tempoSlider.setValue (engine.getTempo(), juce::dontSendNotification);
     clickButton.setToggleState (engine.isClickEnabled(), juce::dontSendNotification);
+    masterStrip.refreshFromEngine();
     refreshChannels();
 
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
@@ -380,20 +460,14 @@ void MainComponent::openSession (const juce::File& directory)
     saveSession();
     saveInserts();
 
-    for (int track = 0; track < rifftrack::numTracks; ++track)
-    {
-        for (int slot = 0; slot < rifftrack::numInsertSlots; ++slot)
-        {
-            pluginWindows[(size_t) track][(size_t) slot].reset();
-            engine.removeInsert (track, slot);
-            refreshInsert (track, slot);
-        }
+    for (auto& track : pluginWindows)
+        for (auto& window : track)
+            window.reset();
 
-        engine.setClips (track, {});
-        engine.setTrackSettings (track, {});
-        engine.setTrackArmed (track, false);
-        strips[(size_t) track]->clearArm();
-    }
+    engine.removeAllTracks();
+
+    for (auto& strip : strips)
+        strip.reset();
 
     closeChannelWindows();
     engine.resetChannels();
@@ -476,12 +550,25 @@ void MainComponent::applyClipEdit (int track, const rifftrack::ClipList& clips, 
     clipsChanged();
 }
 
+void MainComponent::applyDrumEdit (int track, const rifftrack::DrumPartList& parts, const juce::String& editName)
+{
+    if (engine.getState() != rifftrack::TransportState::stopped)
+    {
+        showPluginMessage ("Stop the transport to edit.");
+        return;
+    }
+
+    undoManager.beginNewTransaction (editName);
+    undoManager.perform (new rifftrack::DrumEdit (engine, track, engine.getDrumParts (track), parts));
+    clipsChanged();
+}
+
 void MainComponent::recordingFinished()
 {
     recordingInProgress = false;
     undoManager.beginNewTransaction ("Record");
 
-    for (int track = 0; track < rifftrack::numTracks; ++track)
+    for (int track = 0; track < rifftrack::maxTracks; ++track)
         if (engine.getClips (track) != clipsBeforeRecording[(size_t) track])
             undoManager.perform (new rifftrack::ClipEdit (engine, track, clipsBeforeRecording[(size_t) track], engine.getClips (track)));
 
@@ -527,6 +614,12 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress ('z', command | juce::ModifierKeys::shiftModifier, 0))
     {
         undoOrRedo (true);
+        return true;
+    }
+
+    if (key == juce::KeyPress ('x'))
+    {
+        showConsole (! consoleButton.getToggleState());
         return true;
     }
 
@@ -615,7 +708,8 @@ void MainComponent::insertClicked (int track, int slot, bool wantsMenu, juce::Co
 
 void MainComponent::showInsertMenu (int track, int slot, juce::Component& button)
 {
-    const auto& plugins = pluginLibrary->getPlugins();
+    const auto isInstrument = slot == rifftrack::instrumentSlot;
+    const auto& plugins = isInstrument ? pluginLibrary->getInstruments() : pluginLibrary->getPlugins();
     const auto loaded = engine.getInsert (track, slot) != nullptr;
 
     juce::PopupMenu menu;
@@ -623,7 +717,9 @@ void MainComponent::showInsertMenu (int track, int slot, juce::Component& button
     if (loaded)
     {
         menu.addItem (openMenuId, "Open");
-        menu.addItem (bypassMenuId, "Bypass", true, engine.isInsertBypassed (track, slot));
+        if (! isInstrument)
+            menu.addItem (bypassMenuId, "Bypass", true, engine.isInsertBypassed (track, slot));
+
         menu.addItem (removeMenuId, "Remove");
         menu.addSeparator();
         menu.addSubMenu ("Replace With", createPluginMenu (plugins));
@@ -659,7 +755,8 @@ void MainComponent::showInsertMenu (int track, int slot, juce::Component& button
                                 rifftrack::SavedInsert insert;
                                 insert.track = track;
                                 insert.slot = slot;
-                                insert.description = safeThis->pluginLibrary->getPlugins()[(size_t) (result - firstPluginMenuId)];
+                                insert.description = (slot == rifftrack::instrumentSlot ? safeThis->pluginLibrary->getInstruments()
+                                                                                         : safeThis->pluginLibrary->getPlugins())[(size_t) (result - firstPluginMenuId)];
 
                                 if (safeThis->canChangeInserts())
                                     safeThis->loadInsert (track, slot, insert);
@@ -751,6 +848,9 @@ void MainComponent::refreshInsert (int track, int slot)
 {
     auto* plugin = engine.getInsert (track, slot);
 
+    if (strips[(size_t) track] == nullptr)
+        return;
+
     strips[(size_t) track]->showInsert (slot,
                                         plugin != nullptr ? plugin->getName() : juce::String(),
                                         engine.isInsertBypassed (track, slot));
@@ -766,8 +866,19 @@ void MainComponent::restoreInserts()
     const auto inserts = rifftrack::parseSavedInserts (*xml);
     numInsertsRestoring = (int) inserts.size();
 
+    // A track holding only a plugin wasn't saved as in use by older sessions.
     for (const auto& insert : inserts)
+    {
+        if (! engine.isTrackActive (insert.track))
+        {
+            const auto isLegacyTrack = insert.track < (int) rifftrack::legacyTrackNames.size();
+            engine.activateTrack (insert.track, isLegacyTrack ? rifftrack::legacyTrackNames[(size_t) insert.track] : "Audio");
+            createStrip (insert.track);
+            layoutTracks();
+        }
+
         loadInsert (insert.track, insert.slot, insert);
+    }
 }
 
 // A plugin that's missing today might be back tomorrow, so its saved settings
@@ -835,10 +946,15 @@ void MainComponent::deviceChanged()
         settings->setValue ("audioDevice", state.get());
 
     auto* device = deviceManager.getCurrentAudioDevice();
-    const auto numInputs = device != nullptr ? device->getActiveInputChannels().countNumberOfSetBits() : 0;
+    numInputChannels = device != nullptr ? device->getActiveInputChannels().countNumberOfSetBits() : 0;
 
     for (auto& strip : strips)
-        strip->setInputChannels (numInputs);
+        if (strip != nullptr)
+            strip->setInputChannels (numInputChannels);
+
+    // Pitch is worked out from the sample rate, so a new rate means starting again.
+    if (tuner.isVisible() && device != nullptr)
+        tuner.start (device->getCurrentSampleRate());
 
     latencyIsCalibrated = settings->containsKey (latencyKey());
 
@@ -933,9 +1049,64 @@ void MainComponent::timerCallback()
         finishCalibration();
 
     for (auto& strip : strips)
-        strip->updateMeter();
+        if (strip != nullptr)
+            strip->updateMeter();
+
+    masterStrip.updateMeter();
+
+    if (tuner.isVisible())
+        updateTuner();
 
     updateStatus();
+}
+
+// The string being tuned is the one about to be recorded, so the tuner follows Arm.
+void MainComponent::updateTuner()
+{
+    auto track = -1;
+
+    for (const auto candidate : engine.getTrackOrder())
+    {
+        if (engine.getTrackType (candidate) != rifftrack::TrackType::audio)
+            continue;
+
+        if (track < 0 || engine.isTrackArmed (candidate))
+            track = candidate;
+
+        if (engine.isTrackArmed (candidate))
+            break;
+    }
+
+    const auto input = track >= 0 ? engine.getTrackSettings (track).firstInput : 0;
+
+    engine.setTunerInput (input);
+    tuner.setSource ((track >= 0 ? engine.getTrackName (track) + ", " : juce::String()) + "Input " + juce::String (input + 1));
+    tuner.update (1.0 / timerHz);
+}
+
+void MainComponent::showTuner (bool shouldShow)
+{
+    tunerButton.setToggleState (shouldShow, juce::dontSendNotification);
+
+    if (shouldShow)
+    {
+        tuner.start (engine.getSampleRate() > 0.0 ? engine.getSampleRate() : preferredSampleRate);
+        updateTuner();
+    }
+    else
+    {
+        engine.setTunerInput (-1);
+    }
+
+    tuner.setVisible (shouldShow);
+    resized();
+}
+
+void MainComponent::showConsole (bool shouldShow)
+{
+    consoleButton.setToggleState (shouldShow, juce::dontSendNotification);
+    settings->setValue ("consoleView", shouldShow);
+    resized();
 }
 
 void MainComponent::updateStatus()
@@ -943,12 +1114,18 @@ void MainComponent::updateStatus()
     const auto sampleRate = engine.getSampleRate();
     const auto seconds = sampleRate > 0.0 ? (double) engine.getPosition() / sampleRate : 0.0;
 
-    positionLabel.setText (juce::String (seconds, 2) + " s", juce::dontSendNotification);
+    const auto beats = (juce::int64) std::floor (seconds * engine.getTempo() / 60.0);
+    const auto wholeMinutes = (int) (seconds / 60.0);
+
+    positionLabel.setText (juce::String (beats / rifftrack::beatsPerBar + 1).paddedLeft (' ', 3) + "." + juce::String (beats % rifftrack::beatsPerBar + 1) + "  "
+                               + juce::String (wholeMinutes) + ":" + juce::String (seconds - wholeMinutes * 60.0, 2).paddedLeft ('0', 5),
+                           juce::dontSendNotification);
 
     const auto state = engine.getState();
-    recordButton.setColour (juce::TextButton::buttonColourId,
-                            state == rifftrack::TransportState::recording ? juce::Colours::red
-                                                                          : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
+    const auto idleColour = getLookAndFeel().findColour (juce::TextButton::buttonColourId);
+
+    recordButton.setColour (juce::TextButton::buttonColourId, state == rifftrack::TransportState::recording ? console::red : idleColour);
+    playButton.setColour (juce::TextButton::buttonColourId, state == rifftrack::TransportState::playing ? console::green.darker (0.3f) : idleColour);
 
     const auto health = engine.getLastTakeHealth();
 
@@ -971,10 +1148,11 @@ void MainComponent::updateStatus()
     juce::String status;
     status << deviceDescription() << "  |  " << sampleRate << " Hz, " << device->getCurrentBufferSizeSamples() << " samples  |  "
            << "round trip " << juce::String (latency, 2) << " ms (" << (latencyIsCalibrated ? "calibrated" : "reported") << ")  |  "
+           << "MIDI in: " << (midiInputNames.isNotEmpty() ? midiInputNames : juce::String ("none")) << "  |  "
            << "dropouts " << stats.dropouts << "  |  disk " << stats.playbackUnderrunSamples + stats.droppedRecordingSamples
            << "  |  CPU " << juce::roundToInt (deviceManager.getCpuUsage() * 100.0) << "%";
 
-    statusLabel.setColour (juce::Label::textColourId, deviceManager.getCpuUsage() > cpuWarningLevel ? juce::Colours::orange : juce::Colours::white);
+    statusLabel.setColour (juce::Label::textColourId, deviceManager.getCpuUsage() > cpuWarningLevel ? console::amber : console::dimText);
     statusLabel.setText (status, juce::dontSendNotification);
 }
 
@@ -984,28 +1162,288 @@ void MainComponent::resized()
 
     auto transport = area.removeFromTop (transportHeight).reduced (0, 4);
 
-    for (auto* button : { &returnButton, &playButton, &recordButton, &stopButton, &clickButton, &sessionButton, &effectsButton, &undoButton, &redoButton })
+    for (auto* button : { &returnButton, &playButton, &recordButton, &stopButton, &clickButton, &tunerButton, &consoleButton,
+                          &sessionButton, &addTrackButton, &effectsButton, &undoButton, &redoButton })
     {
-        button->setBounds (transport.removeFromLeft (72));
-        transport.removeFromLeft (6);
+        button->setBounds (transport.removeFromLeft (transportButtonWidth));
+        transport.removeFromLeft (4);
     }
 
-    tempoSlider.setBounds (transport.removeFromLeft (170));
-    calibrateButton.setBounds (transport.removeFromRight (140));
+    tempoSlider.setBounds (transport.removeFromLeft (150));
+    calibrateButton.setBounds (transport.removeFromRight (transportButtonWidth));
+    transport.removeFromRight (4);
+    audioSettingsButton.setBounds (transport.removeFromRight (transportButtonWidth));
     transport.removeFromRight (6);
-    audioSettingsButton.setBounds (transport.removeFromRight (120));
     positionLabel.setBounds (transport);
+
+    if (tuner.isVisible())
+        tuner.setBounds (area.removeFromTop (tunerHeight));
 
     statusLabel.setBounds (area.removeFromBottom (statusHeight));
     pluginLabel.setBounds (area.removeFromBottom (statusHeight));
     takeWarningLabel.setBounds (area.removeFromBottom (statusHeight));
 
+    const auto consoleShowing = consoleButton.getToggleState();
+
+    timeline->setVisible (! consoleShowing);
+    masterStrip.setVisible (consoleShowing);
+
+    if (consoleShowing)
+    {
+        auto scrollBarArea = area.removeFromBottom (trackScrollBarWidth);
+
+        masterStrip.setBounds (area.removeFromRight (masterWidth));
+        area.removeFromRight (6);
+        consoleScrollBar.setBounds (scrollBarArea.withWidth (area.getWidth()));
+        stripHolder.setBounds (area);
+
+        layoutTracks();
+        return;
+    }
+
     auto stripArea = area.removeFromLeft (stripWidth);
     area.removeFromLeft (8);
+    trackScrollBar.setBounds (area.removeFromRight (trackScrollBarWidth).withTrimmedTop (TimelineView::rulerHeight)
+                                  .withTrimmedBottom (TimelineView::scrollBarHeight));
     timeline->setBounds (area);
 
-    stripArea.removeFromTop (TimelineView::rulerHeight);
+    stripHolder.setBounds (stripArea.withTrimmedTop (TimelineView::rulerHeight).withTrimmedBottom (TimelineView::scrollBarHeight));
 
-    for (auto& strip : strips)
-        strip->setBounds (stripArea.removeFromTop (stripHeight));
+    layoutTracks();
+}
+
+void MainComponent::layoutTracks()
+{
+    if (consoleButton.getToggleState())
+    {
+        layoutConsole();
+        return;
+    }
+
+    consoleScrollBar.setVisible (false);
+
+    const auto& order = engine.getTrackOrder();
+    const auto totalHeight = (int) order.size() * stripHeight;
+
+    trackScrollBar.setRangeLimits (0.0, juce::jmax (1, totalHeight));
+    trackScrollBar.setCurrentRange (trackScrollBar.getCurrentRangeStart(), juce::jmax (1, stripHolder.getHeight()));
+    trackScrollBar.setVisible (totalHeight > stripHolder.getHeight());
+    trackScrollOffset = juce::roundToInt (trackScrollBar.getCurrentRangeStart());
+
+    for (size_t lane = 0; lane < order.size(); ++lane)
+    {
+        auto& strip = *strips[(size_t) order[lane]];
+
+        strip.setLayout (TrackStrip::Layout::row);
+        strip.setBounds (0, (int) lane * stripHeight - trackScrollOffset, stripHolder.getWidth(), stripHeight);
+    }
+
+    timeline->setVerticalOffset (trackScrollOffset);
+    timeline->refresh();
+}
+
+void MainComponent::layoutConsole()
+{
+    trackScrollBar.setVisible (false);
+
+    const auto& order = engine.getTrackOrder();
+    const auto totalWidth = (int) order.size() * channelWidth;
+
+    consoleScrollBar.setRangeLimits (0.0, juce::jmax (1, totalWidth));
+    consoleScrollBar.setCurrentRange (consoleScrollBar.getCurrentRangeStart(), juce::jmax (1, stripHolder.getWidth()));
+    consoleScrollBar.setVisible (totalWidth > stripHolder.getWidth());
+
+    const auto offset = juce::roundToInt (consoleScrollBar.getCurrentRangeStart());
+
+    for (size_t channel = 0; channel < order.size(); ++channel)
+    {
+        auto& strip = *strips[(size_t) order[channel]];
+
+        strip.setLayout (TrackStrip::Layout::channel);
+        strip.setBounds ((int) channel * channelWidth - offset, 0, channelWidth, stripHolder.getHeight());
+    }
+}
+
+void MainComponent::scrollBarMoved (juce::ScrollBar*, double)
+{
+    layoutTracks();
+}
+
+void MainComponent::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+{
+    if (consoleButton.getToggleState())
+        consoleScrollBar.setCurrentRangeStart (consoleScrollBar.getCurrentRangeStart() - (double) (wheel.deltaX + wheel.deltaY) * linesPerWheelStep);
+    else
+        trackScrollBar.setCurrentRangeStart (trackScrollBar.getCurrentRangeStart() - (double) wheel.deltaY * linesPerWheelStep);
+}
+
+void MainComponent::createStrip (int track)
+{
+    auto& strip = strips[(size_t) track];
+
+    if (strip == nullptr)
+    {
+        strip = std::make_unique<TrackStrip> (engine, track);
+        stripHolder.addAndMakeVisible (*strip);
+
+        strip->onInsertClick = [this, track] (int slot, bool wantsMenu, juce::Component& button)
+        {
+            insertClicked (track, slot, wantsMenu, button);
+        };
+
+        strip->onChannelClick = [this, track] { openChannelWindow (track); };
+        strip->onDeleteRequest = [this, track] { confirmDeleteTrack (track); };
+        strip->onRenamed = [this, track]
+        {
+            if (channelWindows[(size_t) track] != nullptr)
+                channelWindows[(size_t) track]->setName (engine.getTrackName (track) + " Channel");
+
+            saveSession();
+        };
+
+        strip->setInputChannels (numInputChannels);
+    }
+
+    strip->refreshFromEngine();
+    strip->showChannelActive (engine.getChannel (track).hasAmp());
+}
+
+juce::String MainComponent::nextTrackName (const juce::String& baseName) const
+{
+    const auto isTaken = [this] (const juce::String& name)
+    {
+        for (const auto track : engine.getTrackOrder())
+            if (engine.getTrackName (track) == name)
+                return true;
+
+        return false;
+    };
+
+    // Guitars are numbered from the start, because there are usually several.
+    if (baseName != "Guitar" && ! isTaken (baseName))
+        return baseName;
+
+    for (int number = baseName == "Guitar" ? 1 : 2;; ++number)
+    {
+        const auto name = baseName + " " + juce::String (number);
+
+        if (! isTaken (name))
+            return name;
+    }
+}
+
+void MainComponent::showAddTrackMenu()
+{
+    const juce::StringArray names { "Guitar", "Bass", "Drums", "MIDI", "Vocal", "Audio" };
+
+    juce::PopupMenu menu;
+
+    for (int i = 0; i < names.size(); ++i)
+        menu.addItem (i + 1, names[i]);
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
+                        [safeThis = juce::Component::SafePointer (this), names] (int result)
+                        {
+                            if (safeThis != nullptr && result > 0)
+                                safeThis->addTrack (names[result - 1]);
+                        });
+}
+
+void MainComponent::addTrack (const juce::String& baseName)
+{
+    const auto type = baseName == "Drums" ? rifftrack::TrackType::drums
+                                          : (baseName == "MIDI" ? rifftrack::TrackType::midi : rifftrack::TrackType::audio);
+
+    if (type == rifftrack::TrackType::drums)
+    {
+        const auto drums = engine.loadDrums();
+
+        if (drums.failed())
+        {
+            showPluginMessage (drums.getErrorMessage());
+            return;
+        }
+    }
+
+    const auto track = engine.addTrack (nextTrackName (baseName), type);
+
+    if (track < 0)
+    {
+        showPluginMessage (engine.getState() == rifftrack::TransportState::stopped
+                               ? "RiffTrack can have up to " + juce::String (rifftrack::maxTracks) + " tracks."
+                               : "Stop the transport to add a track.");
+        return;
+    }
+
+    createStrip (track);
+    layoutTracks();
+    saveSession();
+
+    if (type == rifftrack::TrackType::midi)
+        loadDefaultInstrument (track);
+}
+
+void MainComponent::loadDefaultInstrument (int track)
+{
+    for (const auto& instrument : pluginLibrary->getInstruments())
+    {
+        if (instrument.name == defaultInstrumentName)
+        {
+            rifftrack::SavedInsert insert;
+            insert.track = track;
+            insert.slot = rifftrack::instrumentSlot;
+            insert.description = instrument;
+            loadInsert (track, rifftrack::instrumentSlot, insert);
+            return;
+        }
+    }
+}
+
+void MainComponent::confirmDeleteTrack (int track)
+{
+    if (engine.getTrackOrder().size() <= 1)
+    {
+        showPluginMessage ("A session needs at least one track.");
+        return;
+    }
+
+    if (! canChangeInserts())
+        return;
+
+    const auto options = juce::MessageBoxOptions().withIconType (juce::MessageBoxIconType::WarningIcon)
+                                                  .withTitle ("Delete Track")
+                                                  .withMessage ("Delete " + engine.getTrackName (track) + " with its clips, amp and plugins? "
+                                                                "This also clears undo history. Its recordings stay in the session folder, "
+                                                                "so you can bring them back with Add Take at Playhead.")
+                                                  .withButton ("Delete")
+                                                  .withButton ("Cancel")
+                                                  .withAssociatedComponent (this);
+
+    juce::AlertWindow::showAsync (options,
+                                  [safeThis = juce::Component::SafePointer (this), track] (int result)
+                                  {
+                                      if (safeThis != nullptr && result == 1)
+                                          safeThis->deleteTrack (track);
+                                  });
+}
+
+void MainComponent::deleteTrack (int track)
+{
+    if (! canChangeInserts())
+        return;
+
+    for (auto& window : pluginWindows[(size_t) track])
+        window.reset();
+
+    channelWindows[(size_t) track].reset();
+
+    if (engine.removeTrack (track).failed())
+        return;
+
+    strips[(size_t) track].reset();
+    undoManager.clearUndoHistory();
+
+    layoutTracks();
+    clipsChanged();
+    saveInserts();
 }

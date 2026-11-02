@@ -3,16 +3,26 @@ add_executable(rifftrack_tests
     AudioEngineTests.cpp
     ChannelStripTests.cpp
     ClipTests.cpp
+    ConsoleTests.cpp
     CrashRecoveryTests.cpp
     DropoutDetectorTests.cpp
+    DrumTests.cpp
     InsertTests.cpp
     LatencyCalibratorTests.cpp
     MetronomeTests.cpp
+    MeterTests.cpp
+    MidiTests.cpp
     PluginScannerTests.cpp
     SessionTests.cpp
     TakeRoundTripTests.cpp
     TimelineViewTests.cpp
-    ../app/source/TimelineView.cpp)
+    TunerTests.cpp
+    ../app/source/ConsoleLookAndFeel.cpp
+    ../app/source/MasterStrip.cpp
+    ../app/source/TimelineView.cpp
+    ../app/source/TrackStrip.cpp
+    ../app/source/TunerRibbon.cpp
+    ../app/source/VuMeter.cpp)
 
 target_include_directories(rifftrack_tests PRIVATE ../app/source)
 

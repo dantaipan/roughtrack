@@ -24,6 +24,7 @@ struct Rig
 {
     Rig()
     {
+        test::useTracks (engine);
         engine.setSessionDirectory (temp.directory);
         engine.prepare (sampleRate, blockSize);
         engine.setRecordingLatency (0);
@@ -382,6 +383,7 @@ TEST_CASE ("A session from before the channel strip still opens")
     xml.createNewChildElement ("TRACK")->setAttribute ("index", 0);
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.prepare (sampleRate, blockSize);
 
     REQUIRE (applySessionXml (engine, xml, juce::File()).wasOk());

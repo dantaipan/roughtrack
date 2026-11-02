@@ -43,6 +43,7 @@ struct Rig
 {
     Rig()
     {
+        test::useTracks (engine);
         engine.setSessionDirectory (temp.directory);
         engine.prepare (sampleRate, blockSize);
         engine.setRecordingLatency (0);
@@ -291,5 +292,74 @@ TEST_CASE ("A session at another sample rate says so")
 TEST_CASE ("Something that isn't a session is refused")
 {
     AudioEngine engine;
+    test::useTracks (engine);
     CHECK (applySessionXml (engine, juce::XmlElement ("NOT_A_SESSION"), juce::File()).failed());
+}
+
+
+TEST_CASE ("Tracks come back with their names, numbers and order")
+{
+    Rig rig;
+    rig.engine.removeAllTracks();
+
+    const auto first = rig.engine.addTrack ("Rhythm");
+    const auto second = rig.engine.addTrack ("Lead");
+    rig.engine.removeTrack (first);
+    const auto third = rig.engine.addTrack ("Bass");
+
+    const auto xml = createSessionXml (rig.engine, rig.temp.directory);
+
+    AudioEngine restored;
+    restored.prepare (sampleRate, blockSize);
+
+    REQUIRE (applySessionXml (restored, *xml, rig.temp.directory).wasOk());
+
+    CHECK (restored.getTrackOrder() == rig.engine.getTrackOrder());
+    CHECK (restored.getTrackName (second) == "Lead");
+    CHECK (restored.getTrackName (third) == "Bass");
+}
+
+TEST_CASE ("An empty track survives being saved")
+{
+    Rig rig;
+    rig.engine.removeAllTracks();
+    const auto track = rig.engine.addTrack ("Guitar 1");
+
+    const auto xml = createSessionXml (rig.engine, rig.temp.directory);
+
+    AudioEngine restored;
+    restored.prepare (sampleRate, blockSize);
+
+    REQUIRE (applySessionXml (restored, *xml, rig.temp.directory).wasOk());
+    CHECK (restored.isTrackActive (track));
+}
+
+TEST_CASE ("A seven-track session opens with only the tracks it used")
+{
+    Rig rig;
+    const auto file = writeRamp (rig.temp.directory, "take.wav", 1000);
+
+    juce::XmlElement xml ("RIFFTRACK_SESSION");
+
+    for (int track = 0; track < 7; ++track)
+    {
+        auto* trackXml = xml.createNewChildElement ("TRACK");
+        trackXml->setAttribute ("index", track);
+
+        if (track == 2)
+        {
+            auto* clip = trackXml->createNewChildElement ("CLIP");
+            clip->setAttribute ("file", file.getFileName());
+            clip->setAttribute ("length", 1000);
+            clip->setAttribute ("fileLength", 1000);
+        }
+    }
+
+    AudioEngine restored;
+    restored.prepare (sampleRate, blockSize);
+
+    REQUIRE (applySessionXml (restored, xml, rig.temp.directory).wasOk());
+
+    CHECK (restored.getTrackOrder() == std::vector<int> { 2 });
+    CHECK (restored.getTrackName (2) == "Guitar 1");
 }

@@ -121,6 +121,7 @@ struct Rig
 {
     Rig()
     {
+        test::useTracks (engine);
         engine.setSessionDirectory (temp.directory);
         engine.prepare (sampleRate, blockSize);
     }
@@ -173,6 +174,26 @@ TEST_CASE ("Tracks stay aligned when only one has a plugin with latency")
 
     CHECK (Rig::peakOf (rig.outLeft) == pulse);
     CHECK (Rig::peakOf (rig.outRight) == pulse);
+}
+
+TEST_CASE ("A drum track with a slow plugin stays in time with the tracks around it")
+{
+    constexpr int pluginDelay = 1000;
+
+    Rig rig;
+
+    test::writeTestDrums (rig.temp.directory.getChildFile ("Drums"));
+    rig.engine.setDrumFolder (rig.temp.directory.getChildFile ("Drums"));
+    REQUIRE (rig.engine.loadDrums().wasOk());
+
+    rig.engine.activateTrack (7, "Drums", TrackType::drums);
+    REQUIRE (rig.engine.setDrumParts (7, { { "beat", 1, 2, 0 } }).wasOk());
+    REQUIRE (rig.engine.setInsert (7, 0, std::make_unique<TestPlugin> (pluginDelay, 1.0f)).wasOk());
+
+    REQUIRE (rig.engine.play());
+    rig.run (2000);
+
+    CHECK (Rig::peakOf (rig.outLeft) == 96000);
 }
 
 TEST_CASE ("A bypassed plugin adds no latency and no processing")

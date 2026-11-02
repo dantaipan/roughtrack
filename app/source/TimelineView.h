@@ -16,19 +16,28 @@ public:
     static constexpr int rulerHeight = 24;
     static constexpr int scrollBarHeight = 14;
 
+    /** One style's grooves or fills, with those suited to the tempo first. */
+    static juce::PopupMenu createGrooveMenu (const std::vector<rifftrack::Groove>&, const juce::String& style, bool fills, double beatsPerMinute);
+
     TimelineView (rifftrack::AudioEngine&, int laneHeight);
     ~TimelineView() override;
 
     std::function<void (int track, const rifftrack::ClipList&, const juce::String& editName)> onEdit;
+    std::function<void (int track, const rifftrack::DrumPartList&, const juce::String& editName)> onDrumEdit;
     std::function<void (juce::int64 position)> onSeek;
     std::function<void (const juce::String&)> onMessage;
+    std::function<void (float pixels)> onScrollLanes;
 
     void setSessionDirectory (const juce::File&);
 
     /** Call whenever clips change outside this view. */
     void refresh();
     void updatePlayhead();
+
+    /** Scrolls the lanes to stay level with the track strips beside them. */
+    void setVerticalOffset (int pixels);
     bool deleteSelectedClip();
+    void quantizeClip (int track, int clip, int gridTicks);
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -63,16 +72,38 @@ private:
     float sampleToX (juce::int64 sample) const;
     juce::int64 xToSample (float x) const;
     juce::int64 pixelsToSamples (float pixels) const;
-    int laneAt (int y) const;
+    int trackAt (int y) const;
+    int lanesHeight() const;
     juce::Rectangle<int> laneBounds (int track) const;
     juce::Rectangle<float> clipBounds (int track, const rifftrack::Clip&) const;
     const rifftrack::ClipList& clipsToShow (int track) const;
     Hit hitTestClips (juce::Point<float>) const;
+    Hit hitTestParts (int track, juce::Point<float>) const;
+    static Zone findZone (juce::Rectangle<float> bounds, juce::Point<float>);
+
+    bool isDrums (int track) const noexcept;
+    bool isMidi (int track) const noexcept;
+    double samplesPerTick() const;
+
+    /** Clips on a MIDI track are positioned in ticks. */
+    juce::int64 toClipUnits (int track, juce::int64 sample) const;
+    juce::int64 toSamples (int track, juce::int64 clipPosition) const;
+    double samplesPerBar() const;
+    float pixelsPerBar() const;
+    float barToX (int bar) const;
+    int xToBar (float x) const;
+    juce::Rectangle<float> partBounds (int track, const rifftrack::DrumPart&) const;
+    const rifftrack::DrumPartList& partsToShow (int track) const;
 
     juce::AudioThumbnail& thumbnailFor (const juce::File&);
     void paintRuler (juce::Graphics&);
     void paintClip (juce::Graphics&, int track, const rifftrack::Clip&, bool selected);
+    void paintNotes (juce::Graphics&, const rifftrack::Clip&, juce::Rectangle<float> bounds);
+    void paintPart (juce::Graphics&, int track, const rifftrack::DrumPart&, bool selected);
+    void paintBarLines (juce::Graphics&, juce::Rectangle<int> lane);
+    void paintHits (juce::Graphics&, const rifftrack::DrumPart&, const rifftrack::Groove&, juce::Rectangle<float> bounds);
     void showMenu (const Hit&, juce::Point<float>);
+    void showDrumMenu (const Hit&, juce::Point<float>);
     juce::Array<juce::File> findTakes (int track) const;
     void addTake (int track, const juce::File&);
     void updateScrollBar();
@@ -93,9 +124,11 @@ private:
     double pixelsPerSecond = 40.0;
     double viewStartSeconds = 0.0;
     float playheadX = -1.0f;
+    int verticalOffset = 0;
 
     Hit selected;
     Hit dragging;
     rifftrack::ClipList dragOriginal, dragPreview;
+    rifftrack::DrumPartList partsOriginal, partsPreview;
     bool isDragging = false;
 };

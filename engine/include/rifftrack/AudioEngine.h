@@ -3,9 +3,12 @@
 #include "rifftrack/ChannelStrip.h"
 #include "rifftrack/Clip.h"
 #include "rifftrack/DropoutDetector.h"
+#include "rifftrack/DrumSampler.h"
 #include "rifftrack/InsertChain.h"
 #include "rifftrack/LatencyCalibrator.h"
+#include "rifftrack/MidiSequencer.h"
 #include "rifftrack/TakeWriter.h"
+#include "rifftrack/TrackInstrument.h"
 #include "rifftrack/Tracks.h"
 #include "rifftrack/TrackPlayer.h"
 
@@ -14,6 +17,7 @@
 
 #include <array>
 #include <atomic>
+#include <map>
 #include <memory>
 
 namespace rifftrack
@@ -36,7 +40,7 @@ struct Take
 struct TrackSettings
 {
     float gain = 1.0f, pan = 0.0f;
-    bool muted = false, soloed = false, monitoring = false;
+    bool muted = false, soloed = false, monitoring = false, inverted = false;
     int firstInput = 0, inputChannels = 1;
 };
 
@@ -69,13 +73,14 @@ struct TakeHealth
     bool isClean() const noexcept { return dropouts == 0 && droppedSamples == 0; }
 };
 
-/** The fixed 7-track console: playback, overdubbing, monitoring and the click.
+/** The console: playback, overdubbing, monitoring and the click.
 
     Everything except processBlock() and the device callbacks belongs to the
     message thread. Transport changes take a spin lock that the audio thread
     only ever try-locks, so it can't be blocked by them.
 */
 class AudioEngine final : public juce::AudioIODeviceCallback,
+                          public juce::MidiInputCallback,
                           private juce::AsyncUpdater
 {
 public:
@@ -101,6 +106,26 @@ public:
     TransportState getState() const noexcept { return state.load(); }
     double getSampleRate() const noexcept { return currentSampleRate; }
 
+    /** Takes the next free track, or returns -1 if the transport is running or
+        every track is in use. A track keeps its number for as long as it exists.
+    */
+    int addTrack (const juce::String& name, TrackType = TrackType::audio);
+
+    /** Brings a particular track into use, for restoring a session. */
+    void activateTrack (int track, const juce::String& name, TrackType = TrackType::audio);
+
+    /** Removes a track and everything on it, apart from takes already on disk. */
+    juce::Result removeTrack (int track);
+    void removeAllTracks();
+
+    bool isTrackActive (int track) const noexcept { return tracks[(size_t) track].active.load(); }
+    TrackType getTrackType (int track) const noexcept { return tracks[(size_t) track].type.load(); }
+    juce::String getTrackName (int track) const { return tracks[(size_t) track].name; }
+    void setTrackName (int track, const juce::String& name) { tracks[(size_t) track].name = name; }
+
+    /** The tracks in use, in the order they're shown. */
+    const std::vector<int>& getTrackOrder() const noexcept { return trackOrder; }
+
     void setTrackArmed (int track, bool shouldBeArmed);
     void setTrackMonitoring (int track, bool shouldMonitor);
     void setTrackInput (int track, int firstInputChannel, int numChannels);
@@ -108,6 +133,10 @@ public:
     void setTrackPan (int track, float panMinusOneToOne);
     void setTrackMuted (int track, bool shouldBeMuted);
     void setTrackSoloed (int track, bool shouldBeSoloed);
+
+    /** Flips a track's polarity on the way through the mixer. Takes stay as recorded. */
+    void setTrackInverted (int track, bool shouldBeInverted);
+    bool isTrackArmed (int track) const noexcept { return tracks[(size_t) track].armed.load(); }
 
     TrackSettings getTrackSettings (int track) const;
     void setTrackSettings (int track, const TrackSettings&);
@@ -118,10 +147,36 @@ public:
     /** The newest take on a track. */
     Take getTake (int track) const;
 
+    /** On a MIDI track these are in ticks rather than samples. */
     const ClipList& getClips (int track) const;
+
+    /** Reads a take unless it's already in memory. Returns nullptr if it can't. */
+    std::shared_ptr<const MidiTake> loadMidiTake (const juce::File&);
+
+    /** A take that's in memory, for drawing, or nullptr. */
+    const MidiTake* findMidiTake (const juce::File&) const;
+
+    /** Writes a quantized copy of a MIDI clip's take and returns the track's clips with
+        that clip using it. The original take is kept, so undoing brings it straight back.
+        If the copy can't be made the clips come back as they were.
+    */
+    ClipList quantizeClip (int track, int clip, int gridTicks);
 
     /** Clips only change while stopped, because the disk thread is reading them. */
     juce::Result setClips (int track, const ClipList&);
+
+    /** Where the drum kit and grooves are kept. */
+    void setDrumFolder (const juce::File&);
+
+    /** Loads the kit and grooves if they aren't in memory already. Safe to call
+        again, and needed before a drum track can make a sound.
+    */
+    juce::Result loadDrums();
+    const GrooveLibrary& getGrooves() const noexcept { return grooves; }
+
+    /** Parts only change while stopped, like clips. */
+    juce::Result setDrumParts (int track, const DrumPartList&);
+    const DrumPartList& getDrumParts (int track) const { return tracks[(size_t) track].drumParts; }
 
     /** Plugins only change while stopped, because each one moves its track's
         delay compensation, and that's set when the transport starts.
@@ -155,6 +210,22 @@ public:
     float takeTrackPeak (int track) noexcept;
     float takeMasterPeak() noexcept;
 
+    /** Highest level at an armed audio track's input since the last call. Unlike the
+        post-fader level, this works with monitoring off.
+    */
+    float takeTrackInputPeak (int track) noexcept;
+
+    /** Average levels that rise and fall like a VU meter's needle. */
+    float getTrackLevel (int track) const noexcept;
+    float getTrackInputLevel (int track) const noexcept;
+    float getMasterLevel() const noexcept;
+
+    /** Copies an input channel for the tuner, or stops copying if it's -1. */
+    void setTunerInput (int channel) noexcept;
+
+    /** Takes what the tuner has been sent. Returns how many samples that was. */
+    int readTuner (float* destination, int maximumSamples) noexcept;
+
     void setTempo (double beatsPerMinute);
     double getTempo() const noexcept { return tempo.load(); }
     void setClickEnabled (bool shouldClick);
@@ -174,6 +245,9 @@ public:
 
     EngineStats getStats() const;
     std::vector<DropoutDetector::Dropout> getDropoutLog() const { return dropoutDetector.getLog(); }
+
+    /** Keyboards reach whichever MIDI tracks are armed. Any thread can call this. */
+    void handleIncomingMidiMessage (juce::MidiInput*, const juce::MidiMessage&) override;
 
     void audioDeviceIOCallbackWithContext (const float* const* inputs,
                                            int numInputs,
@@ -198,9 +272,13 @@ private:
 
     struct Track
     {
-        std::atomic<bool> armed { false }, monitoring { false }, muted { false }, soloed { false };
+        std::atomic<bool> active { false };
+        std::atomic<TrackType> type { TrackType::audio };
+        juce::String name;
+        std::atomic<bool> armed { false }, monitoring { false }, muted { false }, soloed { false }, inverted { false };
         std::atomic<int> firstInput { 0 }, inputChannels { 1 };
-        std::atomic<float> gain { 1.0f }, pan { 0.0f }, peak { 0.0f };
+        std::atomic<float> gain { 1.0f }, pan { 0.0f }, peak { 0.0f }, inputPeak { 0.0f };
+        std::atomic<float> levelSquared { 0.0f }, inputLevelSquared { 0.0f };
 
         std::unique_ptr<TrackPlayer> player;
         std::unique_ptr<TakeWriter> writer;
@@ -209,14 +287,33 @@ private:
         int recordingFirstInput = 0;
         int recordingChannels = 1;
         ClipList clips;
+        DrumPartList drumParts;
+        DrumSampler drums;
+        TrackInstrument instrument;
+        MidiSequencer sequencer;
+        std::vector<MidiEvent> recordedMidi;
+        bool recordingMidi = false;
+        std::atomic<bool> notesNeedEnding { false };
+        int playbackLatency = 0;
+    };
+
+    /** One message on its way from a keyboard to the audio thread. */
+    struct LiveMidi
+    {
+        juce::uint8 data[3] {};
+        int size = 0;
     };
 
     void handleAsyncUpdate() override;
     void setState (TransportState newState);
     void finishTakes();
     void prepareTracksToPlay();
+    juce::Result loadDrumKit();
 
     void processTrack (Track&, const float* const* inputs, int numInputs, int numSamples, bool anySoloed) noexcept;
+    void renderMidiTrack (Track&, float* left, float* right, int numSamples, bool isRunning) noexcept;
+    void collectLiveMidi() noexcept;
+    void endMidiTake (Track&);
     const float* inputChannel (const float* const* inputs, int numInputs, int channel) const noexcept;
     bool isOutputSilenced (const Track&, bool anySoloed) const noexcept;
 
@@ -229,7 +326,8 @@ private:
     std::atomic<int> lastTakeDropouts { 0 };
     std::atomic<juce::int64> lastTakeDroppedSamples { 0 };
 
-    std::array<Track, numTracks> tracks;
+    std::array<Track, maxTracks> tracks;
+    std::vector<int> trackOrder;
 
     juce::AudioBuffer<float> trackBuffer, mixBuffer, silence;
     double currentSampleRate = 0.0;
@@ -237,7 +335,12 @@ private:
 
     std::atomic<double> tempo { 120.0 };
     std::atomic<bool> clickEnabled { false };
-    std::atomic<float> masterGain { 1.0f }, masterPeak { 0.0f };
+    std::atomic<float> masterGain { 1.0f }, masterPeak { 0.0f }, masterLevelSquared { 0.0f };
+    float levelStep = 1.0f;
+    std::atomic<int> tunerInput { -1 };
+    static constexpr int tunerCapacity = 1 << 15;
+    std::vector<float> tunerSamples = std::vector<float> ((size_t) tunerCapacity);
+    juce::AbstractFifo tunerFifo { tunerCapacity };
     std::atomic<int> recordingLatency { 0 };
     std::atomic<juce::int64> droppedSamples { 0 };
 
@@ -249,7 +352,18 @@ private:
     TransportPlayHead playHead { *this };
     int preparedBlockSize = 0;
 
-    juce::File sessionDirectory;
+    static constexpr int liveMidiCapacity = 1024;
+    std::array<LiveMidi, liveMidiCapacity> liveMidiQueue;
+    juce::AbstractFifo liveMidiFifo { liveMidiCapacity };
+    std::array<LiveMidi, liveMidiCapacity> liveMidi;
+    int numLiveMidi = 0;
+    juce::MidiBuffer trackMidi;
+    juce::int64 midiRecordingStart = 0;
+    std::map<juce::File, std::shared_ptr<const MidiTake>> midiTakes;
+
+    juce::File sessionDirectory, drumFolder;
+    GrooveLibrary grooves;
+    std::shared_ptr<const DrumKit> drumKit;
     juce::AudioFormatManager formatManager;
     juce::TimeSliceThread readThread { "RiffTrack disk read" }, writeThread { "RiffTrack disk write" };
 

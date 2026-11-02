@@ -6,6 +6,9 @@ namespace rifftrack
 namespace
 {
 constexpr int sessionVersion = 1;
+
+/** In TrackType's order. */
+constexpr std::array<const char*, 3> trackTypeNames { "audio", "drums", "midi" };
 } // namespace
 
 std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, const juce::File& sessionDirectory)
@@ -25,17 +28,20 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
         auxXml->setAttribute (getParameterInfo (parameter).id, (double) engine.getAux().getParameter (parameter));
     }
 
-    for (int track = 0; track < numTracks; ++track)
+    for (const auto track : engine.getTrackOrder())
     {
         const auto settings = engine.getTrackSettings (track);
 
         auto* trackXml = xml->createNewChildElement ("TRACK");
         trackXml->setAttribute ("index", track);
+        trackXml->setAttribute ("name", engine.getTrackName (track));
+        trackXml->setAttribute ("type", trackTypeNames[(size_t) engine.getTrackType (track)]);
         trackXml->setAttribute ("gain", (double) settings.gain);
         trackXml->setAttribute ("pan", (double) settings.pan);
         trackXml->setAttribute ("muted", settings.muted);
         trackXml->setAttribute ("soloed", settings.soloed);
         trackXml->setAttribute ("monitoring", settings.monitoring);
+        trackXml->setAttribute ("inverted", settings.inverted);
         trackXml->setAttribute ("firstInput", settings.firstInput);
         trackXml->setAttribute ("inputChannels", settings.inputChannels);
 
@@ -60,6 +66,15 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
             clipXml->setAttribute ("offset", juce::String (clip.fileOffset));
             clipXml->setAttribute ("length", juce::String (clip.length));
             clipXml->setAttribute ("fileLength", juce::String (clip.fileLength));
+        }
+
+        for (const auto& part : engine.getDrumParts (track))
+        {
+            auto* partXml = trackXml->createNewChildElement ("DRUM_PART");
+            partXml->setAttribute ("groove", part.groove);
+            partXml->setAttribute ("startBar", part.startBar);
+            partXml->setAttribute ("bars", part.bars);
+            partXml->setAttribute ("offsetBars", part.offsetBars);
         }
     }
 
@@ -91,8 +106,19 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
     {
         const auto track = trackXml->getIntAttribute ("index", -1);
 
-        if (! juce::isPositiveAndBelow (track, numTracks))
+        if (! juce::isPositiveAndBelow (track, maxTracks))
             continue;
+
+        const auto isLegacy = ! trackXml->hasAttribute ("name");
+
+        auto type = TrackType::audio;
+
+        for (size_t i = 0; i < trackTypeNames.size(); ++i)
+            if (trackXml->getStringAttribute ("type") == trackTypeNames[i])
+                type = (TrackType) i;
+
+        if (! isLegacy)
+            engine.activateTrack (track, trackXml->getStringAttribute ("name"), type);
 
         TrackSettings settings;
         settings.gain = (float) trackXml->getDoubleAttribute ("gain", 1.0);
@@ -100,6 +126,7 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
         settings.muted = trackXml->getBoolAttribute ("muted");
         settings.soloed = trackXml->getBoolAttribute ("soloed");
         settings.monitoring = trackXml->getBoolAttribute ("monitoring");
+        settings.inverted = trackXml->getBoolAttribute ("inverted");
         settings.firstInput = trackXml->getIntAttribute ("firstInput", 0);
         settings.inputChannels = trackXml->getIntAttribute ("inputChannels", 1);
         engine.setTrackSettings (track, settings);
@@ -151,6 +178,36 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
 
         if (result.failed())
             return result;
+
+        if (type == TrackType::drums)
+        {
+            const auto drums = engine.loadDrums();
+
+            if (drums.failed())
+                problems.addIfNotAlreadyThere (drums.getErrorMessage());
+
+            DrumPartList parts;
+
+            for (auto* partXml : trackXml->getChildWithTagNameIterator ("DRUM_PART"))
+            {
+                DrumPart part;
+                part.groove = partXml->getStringAttribute ("groove");
+                part.startBar = partXml->getIntAttribute ("startBar");
+                part.bars = partXml->getIntAttribute ("bars");
+                part.offsetBars = partXml->getIntAttribute ("offsetBars");
+
+                if (engine.getGrooves().find (part.groove) == nullptr)
+                    problems.addIfNotAlreadyThere ("groove " + part.groove);
+
+                parts.push_back (part);
+            }
+
+            engine.setDrumParts (track, parts);
+        }
+
+        // Old sessions listed all seven tracks, so only the ones in use come back.
+        if (isLegacy && (! clips.empty() || engine.getChannel (track).hasAmp()) && track < (int) legacyTrackNames.size())
+            engine.activateTrack (track, legacyTrackNames[(size_t) track]);
     }
 
     const auto savedRate = xml.getDoubleAttribute ("sampleRate");
@@ -163,6 +220,21 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
         return juce::Result::fail ("Couldn't load: " + problems.joinIntoString (", "));
 
     return juce::Result::ok();
+}
+
+DrumEdit::DrumEdit (AudioEngine& engineToEdit, int trackToEdit, DrumPartList partsBefore, DrumPartList partsAfter)
+    : engine (engineToEdit), track (trackToEdit), before (std::move (partsBefore)), after (std::move (partsAfter))
+{
+}
+
+bool DrumEdit::perform()
+{
+    return engine.setDrumParts (track, after).wasOk();
+}
+
+bool DrumEdit::undo()
+{
+    return engine.setDrumParts (track, before).wasOk();
 }
 
 ClipEdit::ClipEdit (AudioEngine& engineToEdit, int trackToEdit, ClipList clipsBefore, ClipList clipsAfter)

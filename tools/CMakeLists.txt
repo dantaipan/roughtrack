@@ -1,5 +1,6 @@
 add_executable(rifftrack_bench
     Bench.cpp
+    BuildDrumKit.cpp
     NativeViews.mm
     ../app/source/PluginWindow.cpp)
 

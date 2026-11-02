@@ -113,6 +113,7 @@ TEST_CASE ("An overdub lands exactly on the part it was played against")
     constexpr int pulse = 24000;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
     SimulatedDevice device (engine, cableDelay);
 
@@ -139,6 +140,7 @@ TEST_CASE ("Recording refuses to start without what it needs")
     test::TempDirectory temp;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
 
     SECTION ("no device")
@@ -160,6 +162,7 @@ TEST_CASE ("A take just recorded plays back after Return")
     test::TempDirectory temp;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
     engine.prepare (sampleRate, blockSize);
     engine.setRecordingLatency (262);
@@ -203,6 +206,7 @@ TEST_CASE ("A take stays where it was recorded on the timeline")
     constexpr int blocksBeforeRecording = 1000;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
     engine.prepare (sampleRate, blockSize);
     engine.setRecordingLatency (0);
@@ -246,6 +250,7 @@ TEST_CASE ("A new take never overwrites an earlier one")
     test::TempDirectory temp;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
     SimulatedDevice device (engine, 64);
 
@@ -271,6 +276,7 @@ TEST_CASE ("A take with a dropout is flagged, and the next clean take isn't")
     test::TempDirectory temp;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
     engine.prepare (sampleRate, blockSize);
     engine.setTrackArmed (0, true);
@@ -316,10 +322,11 @@ TEST_CASE ("Seven tracks mix with gain, mute and solo")
     test::TempDirectory temp;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
     SimulatedDevice device (engine, 64);
 
-    for (int track = 0; track < numTracks; ++track)
+    for (int track = 0; track < 7; ++track)
     {
         const auto name = "track" + juce::String (track) + ".wav";
         REQUIRE (engine.loadTake (track, writeConstantTake (temp.directory, name, 0.1f), 0));
@@ -360,7 +367,7 @@ TEST_CASE ("Seven tracks mix with gain, mute and solo")
 
     SECTION ("a hard-panned track leaves the opposite side")
     {
-        for (int track = 1; track < numTracks; ++track)
+        for (int track = 1; track < 7; ++track)
             engine.setTrackMuted (track, true);
 
         engine.setTrackPan (0, -1.0f);
@@ -376,6 +383,7 @@ TEST_CASE ("Input monitoring needs both arm and monitor on")
     test::TempDirectory temp;
 
     AudioEngine engine;
+    test::useTracks (engine);
     engine.setSessionDirectory (temp.directory);
     engine.prepare (sampleRate, blockSize);
 
@@ -403,6 +411,7 @@ TEST_CASE ("Input monitoring needs both arm and monitor on")
 TEST_CASE ("The transport only moves while running")
 {
     AudioEngine engine;
+    test::useTracks (engine);
     SimulatedDevice device (engine, 64);
 
     device.run (10);
@@ -415,4 +424,129 @@ TEST_CASE ("The transport only moves while running")
     engine.stop();
     device.run (10);
     CHECK (engine.getPosition() == 640);
+}
+
+TEST_CASE ("An engine starts with no tracks, and tracks are added as needed")
+{
+    AudioEngine engine;
+    CHECK (engine.getTrackOrder().empty());
+
+    const auto first = engine.addTrack ("Guitar 1");
+    const auto second = engine.addTrack ("Bass");
+
+    CHECK (engine.isTrackActive (first));
+    CHECK (engine.getTrackName (second) == "Bass");
+    CHECK (engine.getTrackOrder() == std::vector<int> { first, second });
+}
+
+TEST_CASE ("A track that isn't in use makes no sound")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.prepare (sampleRate, blockSize);
+
+    engine.setTrackArmed (0, true);
+    engine.setTrackMonitoring (0, true);
+
+    std::vector<float> input ((size_t) blockSize, 0.25f), left ((size_t) blockSize), right ((size_t) blockSize);
+    const float* inputs[] { input.data() };
+    float* outputs[] { left.data(), right.data() };
+
+    engine.processBlock (inputs, 1, outputs, 2, blockSize);
+    CHECK (left[0] == 0.0f);
+
+    engine.activateTrack (0, "Guitar 1");
+    engine.processBlock (inputs, 1, outputs, 2, blockSize);
+    CHECK (left[0] == Catch::Approx (0.25f));
+}
+
+TEST_CASE ("Removing a track clears everything on it and frees it for reuse")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+
+    const auto first = engine.addTrack ("Guitar 1");
+    const auto second = engine.addTrack ("Guitar 2");
+
+    REQUIRE (engine.loadTake (second, writeConstantTake (temp.directory, "take.wav", 0.1f), 0));
+    engine.setTrackGain (second, 0.5f);
+    engine.getChannel (second).setParameter (ChannelParameter::midGain, 4.0f);
+
+    REQUIRE (engine.removeTrack (second).wasOk());
+
+    CHECK_FALSE (engine.isTrackActive (second));
+    CHECK (engine.getTrackOrder() == std::vector<int> { first });
+    CHECK (engine.getClips (second).empty());
+
+    const auto reused = engine.addTrack ("Vocal");
+
+    CHECK (reused == second);
+    CHECK (engine.getClips (reused).empty());
+    CHECK (engine.getTrackSettings (reused).gain == 1.0f);
+    CHECK (engine.getChannel (reused).getParameter (ChannelParameter::midGain) == 0.0f);
+}
+
+TEST_CASE ("Removing a track never deletes its takes")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+
+    const auto track = engine.addTrack ("Guitar 1");
+    const auto file = writeConstantTake (temp.directory, "take.wav", 0.1f);
+
+    REQUIRE (engine.loadTake (track, file, 0));
+    REQUIRE (engine.removeTrack (track).wasOk());
+
+    CHECK (file.existsAsFile());
+}
+
+TEST_CASE ("Tracks can't be added or removed while the transport runs")
+{
+    AudioEngine engine;
+    engine.prepare (sampleRate, blockSize);
+
+    const auto track = engine.addTrack ("Guitar 1");
+
+    REQUIRE (engine.play());
+    CHECK (engine.addTrack ("Bass") == -1);
+    CHECK (engine.removeTrack (track).failed());
+    engine.stop();
+}
+
+TEST_CASE ("Adding past the limit is refused")
+{
+    AudioEngine engine;
+
+    for (int i = 0; i < maxTracks; ++i)
+        REQUIRE (engine.addTrack ("Track") >= 0);
+
+    CHECK (engine.addTrack ("One Too Many") == -1);
+}
+
+TEST_CASE ("Takes are named after their track, and tracks can share a name")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+    engine.prepare (sampleRate, blockSize);
+    engine.setRecordingLatency (0);
+
+    const auto first = engine.addTrack ("Lead/Rhythm");
+    const auto second = engine.addTrack ("Lead/Rhythm");
+
+    engine.setTrackArmed (first, true);
+    engine.setTrackArmed (second, true);
+
+    std::vector<float> input ((size_t) blockSize, 0.25f), left ((size_t) blockSize), right ((size_t) blockSize);
+    const float* inputs[] { input.data() };
+    float* outputs[] { left.data(), right.data() };
+
+    REQUIRE (engine.record().wasOk());
+    engine.processBlock (inputs, 1, outputs, 2, blockSize);
+    engine.stop();
+
+    CHECK (engine.getTake (first).file.getFileName().startsWith ("LeadRhythm-take"));
+    CHECK (engine.getTake (first).file != engine.getTake (second).file);
 }

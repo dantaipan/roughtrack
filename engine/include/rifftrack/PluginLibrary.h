@@ -7,7 +7,7 @@
 namespace rifftrack
 {
 
-/** The effects available to load, kept in a file so startup needn't rescan. */
+/** The effects and instruments available to load, kept in a file so startup needn't rescan. */
 class PluginLibrary final : private juce::Thread
 {
 public:
@@ -22,6 +22,7 @@ public:
     static bool isInsertEffect (const juce::PluginDescription&);
 
     const std::vector<juce::PluginDescription>& getPlugins() const noexcept { return plugins; }
+    const std::vector<juce::PluginDescription>& getInstruments() const noexcept { return instruments; }
     bool hasBeenScanned() const { return file.existsAsFile(); }
     bool isScanning() const { return isThreadRunning(); }
 
@@ -37,7 +38,7 @@ private:
 
     juce::File file;
     juce::AudioPluginFormatManager formats;
-    std::vector<juce::PluginDescription> plugins;
+    std::vector<juce::PluginDescription> plugins, instruments;
 
     PluginScanCommand scanCommand;
     juce::File scanDirectory;

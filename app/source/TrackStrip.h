@@ -1,5 +1,7 @@
 #pragma once
 
+#include "VuMeter.h"
+
 #include "rifftrack/AudioEngine.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -19,19 +21,27 @@ public:
     std::function<void (bool wantsMenu)> onInsertClick;
 };
 
-/** One track's controls. This is the plain working UI for Phase 1; the console
-    design arrives in Phase 6.
+/** One track's controls. It's a short row beside the timeline, or a full channel in
+    the console, and the same controls move between them so the two can't disagree.
+    Double-click the name to change it, or right-click it to delete the track.
 */
 class TrackStrip final : public juce::Component
 {
 public:
     TrackStrip (rifftrack::AudioEngine& engine, int trackIndex);
 
+    enum class Layout
+    {
+        row,
+        channel
+    };
+
+    void setLayout (Layout);
+
     void setInputChannels (int numInputChannels);
 
     /** Matches the controls to the engine after a session loads. */
     void refreshFromEngine();
-    void clearArm();
     void updateMeter();
     void showInsert (int slot, const juce::String& pluginName, bool bypassed);
 
@@ -39,23 +49,40 @@ public:
 
     std::function<void (int slot, bool wantsMenu, juce::Component& button)> onInsertClick;
     std::function<void()> onChannelClick;
+    std::function<void()> onDeleteRequest;
+    std::function<void()> onRenamed;
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void mouseDown (const juce::MouseEvent&) override;
 
 private:
     void applySelectedInput();
     void showEngineInput();
     void setUpToggle (juce::TextButton&, juce::Colour onColour);
+    void layOutRow();
+    void layOutChannel();
+    void applyLayout();
+    void updateVisibility();
 
     rifftrack::AudioEngine& engine;
     const int index;
+    const rifftrack::TrackType type;
+    Layout layout = Layout::row;
 
     juce::Label nameLabel;
     juce::TextButton armButton { "Arm" }, monitorButton { "Mon" }, muteButton { "M" }, soloButton { "S" }, channelButton { "Channel" };
+    juce::TextButton invertButton;
     juce::ComboBox inputSelector;
     juce::Slider gainSlider, panSlider;
-    std::array<InsertButton, rifftrack::numInsertSlots> insertButtons;
+    std::array<InsertButton, rifftrack::instrumentSlot + 1> insertButtons;
+    VuMeter vuMeter;
     juce::Rectangle<int> meterBounds;
     float meterLevel = 0.0f;
 };
+
+/** The dB marks beside a fader. */
+void drawFaderScale (juce::Graphics&, const juce::Slider& fader, juce::Rectangle<int> area);
+
+/** Gives a fader its range, and puts 0 dB well up its travel, as on a real desk. */
+void setUpFader (juce::Slider&);
