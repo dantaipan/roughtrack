@@ -64,7 +64,7 @@ void AboutComponent::paint (juce::Graphics& g)
     g.drawText ("Version " RIFFTRACK_VERSION, area.removeFromTop (22), juce::Justification::centred);
 
     g.setColour (console::cream);
-    g.drawText ("A recording console for guitarists.", area.removeFromTop (26), juce::Justification::centred);
+    g.drawText ("A simplified multitrack DAW for macOS.", area.removeFromTop (26), juce::Justification::centred);
 
     g.setColour (console::dimText);
     g.setFont (juce::FontOptions (12.0f));

@@ -1,6 +1,6 @@
 # RiffTrack
 
-A recording console for guitarists on macOS, in the spirit of a Portastudio. Start with one track and add more as you need them. RiffTrack is a working name.
+A simplified multitrack DAW for macOS. Record anything through your audio interface, play MIDI instruments from a keyboard, lay down drums from real drummers' grooves, mix on a console with amps and effects, and bounce a mixdown or stems. Start with one track and add more as you need them, up to 24. RiffTrack is a working name.
 
 ## Build
 
@@ -65,11 +65,12 @@ rifftrack_bench plugin-window VST3 NeuralAmpModeler
 rifftrack_bench amp-check capture.nam --instances 4
 rifftrack_bench soak 60 --amp capture.nam --cabinet cabinet.wav --full-channel
 rifftrack_bench tuner-check take.wav
+rifftrack_bench midi-check --instrument sfizz --state inserts.xml
 ```
 
 `overdub-check` plays test sweeps, so turn your monitors down and connect output 1 to input 1 with a cable first.
 
-`scan-plugins` lists every installed VST3 and Audio Unit, each loaded in its own process. `plugin-check` runs third-party effects through the engine with no device. It loads them with default settings, so its timings don't show the cost of a loaded amp model. `plugin-window` opens an editor the way the app does and prints its native views.
+`scan-plugins` lists every installed VST3 and Audio Unit, each loaded in its own process. `plugin-check` runs third-party effects through the engine with no device. It loads them with default settings, so its timings don't show the cost of a loaded amp model. `plugin-window` opens an editor the way the app does and prints its native views. `midi-check` plays a connected keyboard through an instrument and prints the levels it reaches.
 
 `RiffTrack --snapshot <session folder> <png file> [console] [timeline] [tuner]` renders the real window on a session and quits, so the layout can be checked without anyone at the screen.
 
@@ -90,7 +91,8 @@ Right-click a MIDI clip and choose **Quantize** to tighten it to quarters, eight
 - `engine/`: audio engine library, with no UI code
 - `app/`: the macOS application
 - `tests/`: Catch2 tests for the engine
-- `tools/`: `rifftrack_bench`, for checks on real hardware
+- `tools/`: `rifftrack_bench`, for checks on real hardware, and the release script
+- `resources/`: the drum kit, grooves and app icon
 
 ## Credits
 
