@@ -14,15 +14,27 @@ ctest --preset debug
 
 The app is built to `build/debug/app/RiffTrack_artefacts/Debug/RiffTrack.app`. Builds are signed with your Apple Development certificate if you have one, and ad-hoc otherwise. Pass `-DRIFFTRACK_CODESIGN_IDENTITY=...` to choose another identity.
 
+## Release
+
+`tools/make_release.sh` builds a universal app (Apple Silicon and Intel), signs it with your Developer ID, has Apple notarize it, and wraps it in a signed and notarized disk image in `dist/`. It needs a Developer ID Application certificate and notarytool credentials saved once with `xcrun notarytool store-credentials rifftrack-notary --apple-id <email> --team-id <team>`.
+
 ## Sessions
 
 Each session is a folder in `~/Music/RiffTrack`, holding its takes, `session.xml` and `inserts.xml`. It saves automatically, and the folder can be moved.
 
 Editing never changes a recording. Takes are always dry, and clips only say which part of a take plays and when. A new recording plays over what's already there, so punching in replaces only the part it covers. Press **Record** during playback to punch in at that moment, and **Stop** to end the take.
 
-A new session starts with one guitar track. **+ Track** adds more, up to 24. Double-click a track's name to rename it, and right-click it to delete the track. Deleting a track leaves its recordings in the session folder.
+A new session starts with one audio track. The dashed **+ Track** after the last track, in the timeline or the console, adds more, up to 24: **Audio** for anything through your interface, **MIDI** or **Drums**. Drag a track up or down by its name to reorder it, and the console follows. Double-click a track's name to rename it, and right-click it to delete the track. Deleting a track leaves its recordings in the session folder.
+
+Audio settings and latency calibration are in the **Settings** menu in the menu bar. Command-comma opens Audio Settings. **RiffTrack → About RiffTrack** shows the version and the credits for the drums, grooves and libraries. Messages show in the status line for a few seconds, then wait behind the speech-bubble icon beside it. Its number counts the ones you haven't seen, and it turns amber for a warning, such as a take with audio gaps. Click it to read them all.
 
 On the timeline, drag a clip to move it and drag its edges to trim it. Right-click for Split Here, Delete Clip, and Add Take at Playhead, which brings back any take in the session folder. Command-Z undoes, Shift-Command-Z redoes, Space plays and stops, and Delete removes the selected clip.
+
+## Mixdown
+
+**Session → Mix Down to WAV...** mixes the whole session into a 24-bit stereo WAV at the session's sample rate, saved in the session's `Mixdowns` folder unless you choose somewhere else. It renders faster than real time through the same mixer you hear, and runs on until any reverb or delay tail has died away. Live inputs, the keyboard and the click are left out. If the mix goes over full scale, RiffTrack says by how much to lower the master fader.
+
+**Session → Export Stems...** writes one WAV per track you can hear, numbered in track order, plus one for the reverb and delay returns, into a new folder in `Mixdowns`. They all start at the beginning of the session and run the same length, and they include the master fader, so dropped into another DAW at the same point they add up to the mix. Muted tracks are left out, as they are from the mix. Some instruments, including the macOS synth, never play exactly the same way twice, so a stem of one can differ very slightly from a separate mixdown.
 
 ## Console
 

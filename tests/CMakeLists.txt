@@ -1,6 +1,7 @@
 add_executable(rifftrack_tests
     AudioDevicesTests.cpp
     AudioEngineTests.cpp
+    BounceTests.cpp
     ChannelStripTests.cpp
     ClipTests.cpp
     ConsoleTests.cpp

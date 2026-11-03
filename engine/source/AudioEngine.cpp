@@ -124,6 +124,13 @@ void AudioEngine::processBlock (const float* const* inputs,
                                 int numOutputs,
                                 int numSamples) noexcept
 {
+    // A bounce has the engine to itself, so the device plays silence meanwhile.
+    if (bouncing.load())
+    {
+        clearOutputs (outputs, numOutputs, numSamples);
+        return;
+    }
+
     const ScopedStateTryLock lock (stateLock);
 
     if (! lock.isLocked() || numSamples > bufferCapacity)
@@ -132,6 +139,15 @@ void AudioEngine::processBlock (const float* const* inputs,
         return;
     }
 
+    renderBlock (inputs, numInputs, outputs, numOutputs, numSamples);
+}
+
+void AudioEngine::renderBlock (const float* const* inputs,
+                               int numInputs,
+                               float* const* outputs,
+                               int numOutputs,
+                               int numSamples) noexcept
+{
     if (calibrator != nullptr)
     {
         clearOutputs (outputs, numOutputs, numSamples);
@@ -160,21 +176,40 @@ void AudioEngine::processBlock (const float* const* inputs,
     aux.clearSends (numSamples);
     collectLiveMidi();
 
+    // Anything played on a keyboard during a bounce is dropped, not saved up for after.
+    if (bouncing.load())
+        numLiveMidi = 0;
+
     auto anySoloed = false;
 
     for (const auto& track : tracks)
         anySoloed = anySoloed || track.soloed.load();
 
+    if (stemCapture != nullptr)
+        for (auto& stem : stemCapture->tracks)
+            stem.clear (0, numSamples);
+
     for (auto& track : tracks)
         if (track.active.load())
             processTrack (track, inputs, numInputs, numSamples, anySoloed);
 
-    aux.addReturns (mixBuffer.getWritePointer (0), mixBuffer.getWritePointer (1), numSamples, tempo.load());
+    if (stemCapture != nullptr)
+    {
+        auto& effects = stemCapture->effects;
+        effects.clear (0, numSamples);
+        aux.addReturns (effects.getWritePointer (0), effects.getWritePointer (1), numSamples, tempo.load());
+        mixBuffer.addFrom (0, 0, effects, 0, 0, numSamples);
+        mixBuffer.addFrom (1, 0, effects, 1, 0, numSamples);
+    }
+    else
+    {
+        aux.addReturns (mixBuffer.getWritePointer (0), mixBuffer.getWritePointer (1), numSamples, tempo.load());
+    }
 
     const auto running = state.load() != TransportState::stopped;
     const auto timeline = position.load();
 
-    if (running && clickEnabled.load())
+    if (running && clickEnabled.load() && ! bouncing.load())
         addClick (mixBuffer.getWritePointer (0),
                   mixBuffer.getWritePointer (1),
                   numSamples,
@@ -283,6 +318,13 @@ void AudioEngine::processTrack (Track& track,
 
     mixBuffer.addFrom (0, 0, left, numSamples);
     mixBuffer.addFrom (1, 0, right, numSamples);
+
+    if (stemCapture != nullptr)
+    {
+        auto& stem = stemCapture->tracks[(size_t) std::distance (tracks.data(), &track)];
+        stem.copyFrom (0, 0, left, numSamples);
+        stem.copyFrom (1, 0, right, numSamples);
+    }
 
     aux.addToSends (left,
                     right,
@@ -420,6 +462,9 @@ juce::Result AudioEngine::record()
 {
     const auto currentState = state.load();
 
+    if (bouncing.load())
+        return juce::Result::fail ("Wait for the mixdown to finish.");
+
     if (currentState == TransportState::recording)
         return juce::Result::fail ("Already recording.");
 
@@ -490,8 +535,326 @@ juce::Result AudioEngine::record()
     return juce::Result::ok();
 }
 
+juce::int64 AudioEngine::getSessionLength() const
+{
+    const auto rate = currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate;
+    const auto samplesPerBeat = 60.0 * rate / tempo.load();
+    auto end = 0.0;
+
+    for (const auto& track : tracks)
+    {
+        if (! track.active.load())
+            continue;
+
+        const auto type = track.type.load();
+
+        if (type == TrackType::drums)
+        {
+            for (const auto& part : track.drumParts)
+                end = juce::jmax (end, part.endBar() * beatsPerBar * samplesPerBeat);
+        }
+        else
+        {
+            const auto scale = type == TrackType::midi ? samplesPerBeat / ticksPerBeat : 1.0;
+
+            for (const auto& clip : track.clips)
+                end = juce::jmax (end, (double) clip.timelineEnd() * scale);
+        }
+    }
+
+    return (juce::int64) std::ceil (end);
+}
+
+namespace
+{
+
+std::unique_ptr<juce::AudioFormatWriter> createBounceWriter (const juce::File& file, double sampleRate)
+{
+    file.deleteFile();
+    std::unique_ptr<juce::OutputStream> stream = file.createOutputStream();
+
+    if (stream == nullptr)
+        return nullptr;
+
+    return juce::WavAudioFormat().createWriterFor (stream, juce::AudioFormatWriterOptions{}.withSampleRate (sampleRate)
+                                                                                           .withNumChannels (2)
+                                                                                           .withBitsPerSample (24));
+}
+
+} // namespace
+
+juce::Result AudioEngine::checkCanBounce (juce::int64 startSample, juce::int64 endSample) const
+{
+    if (state.load() != TransportState::stopped)
+        return juce::Result::fail ("Stop the transport first.");
+
+    if (currentSampleRate <= 0.0 || preparedBlockSize <= 0)
+        return juce::Result::fail ("No audio device is running.");
+
+    if (calibrator != nullptr)
+        return juce::Result::fail ("Latency calibration is running.");
+
+    if (endSample <= startSample)
+        return juce::Result::fail ("There's nothing to mix down.");
+
+    return juce::Result::ok();
+}
+
+AudioEngine::BounceResult AudioEngine::bounce (const juce::File& file,
+                                               juce::int64 startSample,
+                                               juce::int64 endSample,
+                                               const std::function<bool (double)>& shouldContinue)
+{
+    if (const auto check = checkCanBounce (startSample, endSample); check.failed())
+        return { check };
+
+    if (file.getParentDirectory().createDirectory().failed())
+        return { juce::Result::fail ("Couldn't create " + file.getParentDirectory().getFullPathName()) };
+
+    auto writer = createBounceWriter (file, currentSampleRate);
+
+    if (writer == nullptr)
+        return { juce::Result::fail ("Couldn't write " + file.getFullPathName()) };
+
+    auto outcome = renderOffline (startSample, endSample, shouldContinue, nullptr, [&] (const juce::AudioBuffer<float>& mix, int numSamples)
+    {
+        return writer->writeFromAudioSampleBuffer (mix, 0, numSamples);
+    });
+
+    writer.reset();
+
+    if (outcome.result.failed())
+        file.deleteFile();
+
+    return outcome;
+}
+
+AudioEngine::BounceResult AudioEngine::bounceStems (const juce::File& folder,
+                                                    juce::int64 startSample,
+                                                    juce::int64 endSample,
+                                                    const std::function<bool (double)>& shouldContinue)
+{
+    if (const auto check = checkCanBounce (startSample, endSample); check.failed())
+        return { check };
+
+    if (folder.createDirectory().failed())
+        return { juce::Result::fail ("Couldn't create " + folder.getFullPathName()) };
+
+    struct Stem
+    {
+        int track = -1;
+        juce::File file;
+        std::unique_ptr<juce::AudioFormatWriter> writer;
+    };
+
+    std::vector<Stem> stems;
+    auto anySoloed = false;
+
+    for (const auto& track : tracks)
+        anySoloed = anySoloed || (track.active.load() && track.soloed.load());
+
+    // Numbered in the order the tracks are shown, so they line up the same way elsewhere.
+    for (const auto index : trackOrder)
+        if (! isOutputSilenced (tracks[(size_t) index], anySoloed))
+            stems.push_back ({ index, folder.getChildFile (juce::String ((int) stems.size() + 1).paddedLeft ('0', 2) + " "
+                                                           + juce::File::createLegalFileName (tracks[(size_t) index].name) + ".wav"), nullptr });
+
+    stems.push_back ({ -1, folder.getChildFile (juce::String ((int) stems.size() + 1).paddedLeft ('0', 2) + " Reverb and Delay.wav"), nullptr });
+
+    const auto deleteAll = [&stems]
+    {
+        for (auto& stem : stems)
+        {
+            stem.writer.reset();
+            stem.file.deleteFile();
+        }
+    };
+
+    for (auto& stem : stems)
+    {
+        stem.writer = createBounceWriter (stem.file, currentSampleRate);
+
+        if (stem.writer == nullptr)
+        {
+            deleteAll();
+            return { juce::Result::fail ("Couldn't write " + stem.file.getFullPathName()) };
+        }
+    }
+
+    StemCapture capture;
+    capture.tracks.resize ((size_t) maxTracks);
+
+    for (auto& buffer : capture.tracks)
+        buffer.setSize (2, preparedBlockSize);
+
+    capture.effects.setSize (2, preparedBlockSize);
+
+    juce::AudioBuffer<float> scaled (2, preparedBlockSize);
+    auto stemPeak = 0.0f;
+
+    auto outcome = renderOffline (startSample, endSample, shouldContinue, &capture, [&] (const juce::AudioBuffer<float>&, int numSamples)
+    {
+        // The master fader applies to every stem, so together they add up to the mixdown.
+        const auto gain = masterGain.load();
+
+        for (auto& stem : stems)
+        {
+            const auto& source = stem.track >= 0 ? capture.tracks[(size_t) stem.track] : capture.effects;
+
+            for (int channel = 0; channel < 2; ++channel)
+            {
+                scaled.copyFrom (channel, 0, source, channel, 0, numSamples);
+                scaled.applyGain (channel, 0, numSamples, gain);
+            }
+
+            stemPeak = juce::jmax (stemPeak, scaled.getMagnitude (0, numSamples));
+
+            if (! stem.writer->writeFromAudioSampleBuffer (scaled, 0, numSamples))
+                return false;
+        }
+
+        return true;
+    });
+
+    outcome.peak = stemPeak;
+
+    if (outcome.result.failed())
+        deleteAll();
+
+    return outcome;
+}
+
+AudioEngine::BounceResult AudioEngine::renderOffline (juce::int64 startSample,
+                                                      juce::int64 endSample,
+                                                      const std::function<bool (double)>& shouldContinue,
+                                                      StemCapture* capture,
+                                                      const std::function<bool (const juce::AudioBuffer<float>&, int)>& writeBlock)
+{
+    constexpr double maxTailSeconds = 10.0;
+    constexpr double silentTailSeconds = 0.5;
+    constexpr float silentSwing = 2.0e-5f; // -94 dBFS
+
+    BounceResult outcome;
+
+    const auto returnTo = position.load();
+    const auto blockSize = preparedBlockSize;
+    const auto maxEnd = endSample + (juce::int64) (maxTailSeconds * currentSampleRate);
+    const auto silentBlocksNeeded = (int) std::ceil (silentTailSeconds * currentSampleRate / blockSize);
+
+    bouncing = true;
+
+    {
+        // Waits out any block the device was already part way through.
+        const ScopedStateLock lock (stateLock);
+        position = startSample;
+        stemCapture = capture;
+    }
+
+    setPluginsNonRealtime (true);
+    prepareTracksToPlay();
+    setState (TransportState::playing);
+
+    juce::AudioBuffer<float> block (2, blockSize);
+    float* const channels[] { block.getWritePointer (0), block.getWritePointer (1) };
+    auto silentBlocks = 0;
+    auto blocksSinceAsking = 0;
+
+    while (position.load() < maxEnd)
+    {
+        const auto numSamples = (int) juce::jmin<juce::int64> (blockSize, maxEnd - position.load());
+        waitForDisk (numSamples);
+
+        {
+            const ScopedStateLock lock (stateLock);
+            renderBlock (nullptr, 0, channels, 2, numSamples);
+        }
+
+        const auto blockPeak = block.getMagnitude (0, numSamples);
+        outcome.peak = juce::jmax (outcome.peak, blockPeak);
+
+        if (! writeBlock (block, numSamples))
+        {
+            outcome.result = juce::Result::fail ("Couldn't write the mixdown. The disk may be full.");
+            break;
+        }
+
+        outcome.numSamples += numSamples;
+
+        if (position.load() >= endSample)
+        {
+            // An amp model can leave a constant offset that never dies away, so
+            // silence means nothing moving, not nothing there.
+            const auto left = juce::FloatVectorOperations::findMinAndMax (block.getReadPointer (0), numSamples);
+            const auto right = juce::FloatVectorOperations::findMinAndMax (block.getReadPointer (1), numSamples);
+            const auto swing = juce::jmax (left.getLength(), right.getLength());
+
+            silentBlocks = swing < silentSwing ? silentBlocks + 1 : 0;
+
+            if (silentBlocks >= silentBlocksNeeded)
+                break;
+        }
+
+        if (shouldContinue != nullptr && ++blocksSinceAsking >= 64)
+        {
+            blocksSinceAsking = 0;
+
+            if (! shouldContinue (juce::jlimit (0.0, 1.0, (double) (position.load() - startSample) / (double) (endSample - startSample))))
+            {
+                outcome.result = juce::Result::fail ("Mixdown cancelled.");
+                break;
+            }
+        }
+    }
+
+    setState (TransportState::stopped);
+    finishTakes();
+    setPluginsNonRealtime (false);
+
+    {
+        const ScopedStateLock lock (stateLock);
+        position = returnTo;
+        stemCapture = nullptr;
+        bouncing = false;
+    }
+
+    return outcome;
+}
+
+void AudioEngine::waitForDisk (int numSamples) const
+{
+    constexpr int maxWaitMs = 5000;
+
+    for (const auto& track : tracks)
+    {
+        if (! track.active.load() || track.type.load() != TrackType::audio)
+            continue;
+
+        for (int waited = 0; ! track.player->isReadyFor (numSamples) && waited < maxWaitMs; ++waited)
+            juce::Thread::sleep (1);
+    }
+}
+
+void AudioEngine::setPluginsNonRealtime (bool isNonRealtime)
+{
+    const ScopedStateLock lock (stateLock);
+
+    for (auto& track : tracks)
+    {
+        for (int slot = 0; slot < numInsertSlots; ++slot)
+            if (auto* plugin = track.inserts.get (slot))
+                plugin->setNonRealtime (isNonRealtime);
+
+        if (auto* instrument = track.instrument.get())
+            instrument->setNonRealtime (isNonRealtime);
+    }
+}
+
 void AudioEngine::stop()
 {
+    // The mixdown stops itself, and the transport isn't the player's meanwhile.
+    if (bouncing.load())
+        return;
+
     setState (TransportState::stopped);
     finishTakes();
 }
@@ -669,6 +1032,17 @@ juce::Result AudioEngine::removeTrack (int track)
     target.name.clear();
 
     return juce::Result::ok();
+}
+
+void AudioEngine::moveTrack (int track, int newPosition)
+{
+    const auto found = std::find (trackOrder.begin(), trackOrder.end(), track);
+
+    if (found == trackOrder.end())
+        return;
+
+    trackOrder.erase (found);
+    trackOrder.insert (trackOrder.begin() + juce::jlimit (0, (int) trackOrder.size(), newPosition), track);
 }
 
 void AudioEngine::removeAllTracks()

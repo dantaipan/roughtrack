@@ -52,9 +52,15 @@ public:
     std::function<void()> onDeleteRequest;
     std::function<void()> onRenamed;
 
+    /** Dragging a row moves the track. The position is the pointer's height in the parent. */
+    std::function<void (float y)> onDragMove;
+    std::function<void (float y)> onDragEnd;
+
     void paint (juce::Graphics&) override;
     void resized() override;
     void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
 
 private:
     void applySelectedInput();
@@ -79,6 +85,7 @@ private:
     VuMeter vuMeter;
     juce::Rectangle<int> meterBounds;
     float meterLevel = 0.0f;
+    bool dragging = false;
 };
 
 /** The dB marks beside a fader. */

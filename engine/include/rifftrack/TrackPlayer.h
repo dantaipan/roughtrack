@@ -39,6 +39,9 @@ public:
 
     juce::int64 getUnderrunSamples() const noexcept { return underrunSamples.load(); }
 
+    /** Whether the next numSamples are read from disk, for rendering faster than real time. */
+    bool isReadyFor (int numSamples) const noexcept { return ! hasClips.load() || fifo.getNumReady() >= numSamples; }
+
 private:
     int useTimeSlice() override;
     void fillBuffer();

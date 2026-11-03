@@ -19,7 +19,7 @@ public:
         setUsingNativeTitleBar (true);
         setContentOwned (new MainComponent (session), true);
         setResizable (true, true);
-        setResizeLimits (MainComponent::minimumWidth, 480, 16384, 16384);
+        setResizeLimits (MainComponent::getMinimumWidth(), 480, 16384, 16384);
         centreWithSize (getWidth(), getHeight());
         setVisible (true);
     }

@@ -363,3 +363,35 @@ TEST_CASE ("A seven-track session opens with only the tracks it used")
     CHECK (restored.getTrackOrder() == std::vector<int> { 2 });
     CHECK (restored.getTrackName (2) == "Guitar 1");
 }
+
+TEST_CASE ("Tracks can be reordered, and the order is saved with the session")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+    engine.activateTrack (0, "Guitar");
+    engine.activateTrack (1, "Bass");
+    engine.activateTrack (2, "Keys", TrackType::midi);
+
+    engine.moveTrack (2, 0);
+    CHECK (engine.getTrackOrder() == std::vector<int> { 2, 0, 1 });
+
+    engine.moveTrack (2, 99);
+    CHECK (engine.getTrackOrder() == std::vector<int> { 0, 1, 2 });
+
+    engine.moveTrack (0, 1);
+    CHECK (engine.getTrackOrder() == std::vector<int> { 1, 0, 2 });
+
+    // A track that isn't in use is ignored.
+    engine.moveTrack (5, 0);
+    CHECK (engine.getTrackOrder() == std::vector<int> { 1, 0, 2 });
+
+    const auto xml = createSessionXml (engine, temp.directory);
+
+    AudioEngine restored;
+    restored.setSessionDirectory (temp.directory);
+    REQUIRE (applySessionXml (restored, *xml, temp.directory).wasOk());
+    CHECK (restored.getTrackOrder() == std::vector<int> { 1, 0, 2 });
+    CHECK (restored.getTrackName (1) == "Bass");
+    CHECK (restored.getTrackType (2) == TrackType::midi);
+}

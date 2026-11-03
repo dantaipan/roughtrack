@@ -101,6 +101,37 @@ public:
     juce::Result record();
     void stop();
 
+    /** Where the last clip or drum part ends, in samples. */
+    juce::int64 getSessionLength() const;
+
+    struct BounceResult
+    {
+        juce::Result result = juce::Result::ok();
+        juce::int64 numSamples = 0;
+        float peak = 0.0f;
+    };
+
+    /** Mixes the session from startSample to endSample into a 24-bit stereo WAV,
+        then carries on until any reverb or delay tail has died away. It runs on the
+        calling thread, faster than real time, while the device plays silence. Live
+        inputs, the keyboard and the click are left out. shouldContinue is asked
+        between blocks with progress from 0 to 1, and returning false cancels.
+    */
+    BounceResult bounce (const juce::File& file,
+                         juce::int64 startSample,
+                         juce::int64 endSample,
+                         const std::function<bool (double)>& shouldContinue = {});
+
+    /** Like bounce(), but writes one WAV per track that can be heard, numbered in
+        track order, plus one for the reverb and delay returns. They all start and
+        end together and include the master fader, so they add up to the mixdown.
+        The peak returned is the loudest of them.
+    */
+    BounceResult bounceStems (const juce::File& folder,
+                              juce::int64 startSample,
+                              juce::int64 endSample,
+                              const std::function<bool (double)>& shouldContinue = {});
+
     void setPosition (juce::int64 timelinePosition);
     juce::int64 getPosition() const noexcept { return position.load(); }
     TransportState getState() const noexcept { return state.load(); }
@@ -116,6 +147,11 @@ public:
 
     /** Removes a track and everything on it, apart from takes already on disk. */
     juce::Result removeTrack (int track);
+
+    /** Moves a track to another place in the running order. Its number, and so
+        everything filed under it, stays the same.
+    */
+    void moveTrack (int track, int newPosition);
     void removeAllTracks();
 
     bool isTrackActive (int track) const noexcept { return tracks[(size_t) track].active.load(); }
@@ -312,6 +348,23 @@ private:
 
     void processTrack (Track&, const float* const* inputs, int numInputs, int numSamples, bool anySoloed) noexcept;
     void renderMidiTrack (Track&, float* left, float* right, int numSamples, bool isRunning) noexcept;
+    void renderBlock (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept;
+    void waitForDisk (int numSamples) const;
+
+    /** Where a stem bounce collects each track's output and the effect returns. */
+    struct StemCapture
+    {
+        std::vector<juce::AudioBuffer<float>> tracks;
+        juce::AudioBuffer<float> effects;
+    };
+
+    juce::Result checkCanBounce (juce::int64 startSample, juce::int64 endSample) const;
+    BounceResult renderOffline (juce::int64 startSample,
+                                juce::int64 endSample,
+                                const std::function<bool (double)>& shouldContinue,
+                                StemCapture* capture,
+                                const std::function<bool (const juce::AudioBuffer<float>&, int)>& writeBlock);
+    void setPluginsNonRealtime (bool isNonRealtime);
     void collectLiveMidi() noexcept;
     void endMidiTake (Track&);
     const float* inputChannel (const float* const* inputs, int numInputs, int channel) const noexcept;
@@ -319,6 +372,8 @@ private:
 
     juce::SpinLock stateLock;
     std::atomic<TransportState> state { TransportState::stopped };
+    std::atomic<bool> bouncing { false };
+    StemCapture* stemCapture = nullptr;
     std::atomic<juce::int64> position { 0 };
     juce::int64 recordingStart = 0;
     int dropoutsAtRecordingStart = 0;

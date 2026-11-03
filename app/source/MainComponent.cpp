@@ -38,6 +38,15 @@ constexpr double cpuWarningLevel = 0.8;
 constexpr int effectsWidth = 420;
 constexpr int firstSessionMenuId = 1;
 constexpr int newSessionMenuId = 100000;
+constexpr int mixDownMenuId = 100001;
+constexpr int stemsMenuId = 100002;
+constexpr int audioSettingsMenuId = 1;
+constexpr int calibrateMenuId = 2;
+constexpr int aboutMenuId = 3;
+constexpr int transportLabelledWidth = 82;
+constexpr int transportIconWidth = 40;
+constexpr int windowMargin = 12;
+constexpr int messageShowMs = 6000;
 constexpr auto defaultSessionName = "Session";
 constexpr auto sessionFileName = "session.xml";
 
@@ -178,10 +187,6 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     clickButton.setColour (juce::TextButton::buttonOnColourId, juce::Colours::orange);
     clickButton.onClick = [this] { engine.setClickEnabled (clickButton.getToggleState()); };
 
-    audioSettingsButton.setTooltip ("Audio Settings");
-    audioSettingsButton.onClick = [this] { showAudioSettings(); };
-    calibrateButton.setTooltip ("Calibrate Latency");
-    calibrateButton.onClick = [this] { confirmCalibration(); };
 
     tunerButton.setClickingTogglesState (true);
     tunerButton.setColour (juce::TextButton::buttonOnColourId, console::green);
@@ -206,8 +211,8 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
     for (auto* component : std::initializer_list<juce::Component*> { &returnButton, &playButton, &recordButton, &stopButton,
                                                                      &clickButton, &tempoSlider, &positionLabel,
-                                                                     &audioSettingsButton, &calibrateButton, &statusLabel,
-                                                                     &takeWarningLabel, &pluginLabel, &sessionButton, &effectsButton, &undoButton, &redoButton,
+                                                                     &statusLabel,
+                                                                     &messageButton, &sessionButton, &effectsButton, &undoButton, &redoButton,
                                                                      &tunerButton, &consoleButton })
         addAndMakeVisible (component);
 
@@ -231,8 +236,18 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     consoleScrollBar.addListener (this);
     addChildComponent (consoleScrollBar);
 
-    addTrackButton.onClick = [this] { showAddTrackMenu(); };
-    addAndMakeVisible (addTrackButton);
+    ghostTrack.onClick = [this] (juce::Point<int> screenPosition) { showAddTrackMenu (screenPosition); };
+    stripHolder.addAndMakeVisible (ghostTrack);
+
+    dropIndicator.setColour (juce::Label::backgroundColourId, console::amber);
+    dropIndicator.setInterceptsMouseClicks (false, false);
+    stripHolder.addChildComponent (dropIndicator);
+
+   #if JUCE_MAC
+    juce::PopupMenu appleMenu;
+    appleMenu.addItem (aboutMenuId, "About RiffTrack");
+    juce::MenuBarModel::setMacMainMenu (this, &appleMenu);
+   #endif
 
     timeline->onScrollLanes = [this] (float wheelDelta)
     {
@@ -242,9 +257,8 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     // Before setSize, so the first layout is already the saved view.
     consoleButton.setToggleState (settings->getBoolValue ("consoleView"), juce::dontSendNotification);
 
-    setSize (1400, transportHeight + TimelineView::rulerHeight + rowsShownAtStart * stripHeight + TimelineView::scrollBarHeight + 3 * statusHeight + 32);
+    setSize (1400, transportHeight + TimelineView::rulerHeight + rowsShownAtStart * stripHeight + TimelineView::scrollBarHeight + statusHeight + 32);
 
-    takeWarningLabel.setColour (juce::Label::textColourId, console::amber);
     statusLabel.setText ("Waiting for microphone access", juce::dontSendNotification);
 
     rifftrack::requestMicrophoneAccess ([safeThis = juce::Component::SafePointer (this)] (bool granted)
@@ -265,6 +279,10 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
 MainComponent::~MainComponent()
 {
+   #if JUCE_MAC
+    juce::MenuBarModel::setMacMainMenu (nullptr);
+   #endif
+
     stopTimer();
     engine.stop();
     saveSession();
@@ -415,7 +433,7 @@ void MainComponent::loadCurrentSession()
     }
 
     if (engine.getTrackOrder().empty())
-        engine.addTrack (nextTrackName ("Guitar"));
+        engine.addTrack (nextTrackName ("Audio"));
 
     for (const auto track : engine.getTrackOrder())
         createStrip (track);
@@ -498,6 +516,8 @@ void MainComponent::showSessionMenu()
 {
     juce::PopupMenu menu;
     menu.addItem (newSessionMenuId, "New Session...");
+    menu.addItem (mixDownMenuId, "Mix Down to WAV...");
+    menu.addItem (stemsMenuId, "Export Stems...");
     menu.addSeparator();
 
     auto folders = sessionsFolder().findChildFiles (juce::File::findDirectories, false);
@@ -514,9 +534,160 @@ void MainComponent::showSessionMenu()
 
                             if (result == newSessionMenuId)
                                 safeThis->askForNewSession();
+                            else if (result == mixDownMenuId)
+                                safeThis->askWhereToMixDown();
+                            else if (result == stemsMenuId)
+                                safeThis->exportStems();
                             else if (folders[result - firstSessionMenuId] != safeThis->currentSession)
                                 safeThis->openSession (folders[result - firstSessionMenuId]);
                         });
+}
+
+namespace
+{
+
+/** Runs a mixdown off the message thread, with a progress bar and a Cancel button. */
+class MixdownThread final : public juce::ThreadWithProgressWindow
+{
+public:
+    using Result = rifftrack::AudioEngine::BounceResult;
+    using Job = std::function<Result (const std::function<bool (double)>&)>;
+    using Finished = std::function<void (const Result&)>;
+
+    MixdownThread (const juce::String& title, Job jobToRun, Finished whenFinished)
+        : ThreadWithProgressWindow (title, true, true), job (std::move (jobToRun)), finished (std::move (whenFinished))
+    {
+    }
+
+    void run() override
+    {
+        result = job ([this] (double progress)
+        {
+            setProgress (progress);
+            return ! threadShouldExit();
+        });
+    }
+
+    void threadComplete (bool) override
+    {
+        finished (result);
+        delete this;
+    }
+
+private:
+    Job job;
+    Finished finished;
+    Result result;
+};
+
+} // namespace
+
+void MainComponent::askWhereToMixDown()
+{
+    if (engine.getState() != rifftrack::TransportState::stopped)
+    {
+        showPluginMessage ("Stop the transport to mix down.");
+        return;
+    }
+
+    if (engine.getSessionLength() <= 0)
+    {
+        showPluginMessage ("There's nothing to mix down yet.");
+        return;
+    }
+
+    const auto folder = currentSession.getChildFile ("Mixdowns");
+    folder.createDirectory();
+
+    mixdownChooser = std::make_unique<juce::FileChooser> ("Mix Down",
+                                                          folder.getNonexistentChildFile (currentSession.getFileName(), ".wav", true),
+                                                          "*.wav");
+
+    mixdownChooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                                     | juce::FileBrowserComponent::warnAboutOverwriting,
+                                 [safeThis = juce::Component::SafePointer (this)] (const juce::FileChooser& chooser)
+                                 {
+                                     const auto file = chooser.getResult();
+
+                                     if (safeThis != nullptr && file != juce::File())
+                                         safeThis->mixDown (file.withFileExtension ("wav"));
+                                 });
+}
+
+void MainComponent::mixDown (const juce::File& file)
+{
+    if (engine.getState() != rifftrack::TransportState::stopped)
+        return;
+
+    const auto end = engine.getSessionLength();
+
+    auto* thread = new MixdownThread ("Mixing down " + file.getFileName(),
+                                      [this, file, end] (const auto& shouldContinue) { return engine.bounce (file, 0, end, shouldContinue); },
+                                      [safeThis = juce::Component::SafePointer (this), file] (const auto& result)
+                                      {
+                                          if (safeThis != nullptr)
+                                              safeThis->mixdownFinished (file, result, false);
+                                      });
+    thread->launchThread();
+}
+
+void MainComponent::exportStems()
+{
+    if (engine.getState() != rifftrack::TransportState::stopped)
+    {
+        showPluginMessage ("Stop the transport to export stems.");
+        return;
+    }
+
+    if (engine.getSessionLength() <= 0)
+    {
+        showPluginMessage ("There's nothing to export yet.");
+        return;
+    }
+
+    const auto folder = currentSession.getChildFile ("Mixdowns").getNonexistentChildFile (currentSession.getFileName() + " stems", {}, true);
+    const auto end = engine.getSessionLength();
+
+    auto* thread = new MixdownThread ("Exporting stems",
+                                      [this, folder, end] (const auto& shouldContinue) { return engine.bounceStems (folder, 0, end, shouldContinue); },
+                                      [safeThis = juce::Component::SafePointer (this), folder] (const auto& result)
+                                      {
+                                          if (safeThis != nullptr)
+                                              safeThis->mixdownFinished (folder, result, true);
+                                      });
+    thread->launchThread();
+}
+
+void MainComponent::mixdownFinished (const juce::File& file, const rifftrack::AudioEngine::BounceResult& result, bool isStems)
+{
+    if (result.result.failed())
+    {
+        showPluginMessage (result.result.getErrorMessage());
+        return;
+    }
+
+    const auto seconds = (int) std::round ((double) result.numSamples / engine.getSampleRate());
+    const auto peak = juce::Decibels::gainToDecibels (result.peak, -100.0f);
+    const auto length = juce::String (seconds / 60) + ":" + juce::String (seconds % 60).paddedLeft ('0', 2);
+
+    if (isStems)
+        showPluginMessage ("Exported " + juce::String (file.getNumberOfChildFiles (juce::File::findFiles, "*.wav")) + " stems to "
+                           + file.getFileName() + ", " + length + " long, the loudest peaking at " + juce::String (peak, 1) + " dBFS.");
+    else
+        showPluginMessage ("Mixed down to " + file.getFileName() + ", " + length + " long, peaking at " + juce::String (peak, 1) + " dBFS.");
+
+    file.revealToUser();
+
+    // A float mix can go over full scale, but the 24-bit file can't hold it.
+    if (result.peak >= 1.0f)
+        juce::AlertWindow::showAsync (juce::MessageBoxOptions().withIconType (juce::MessageBoxIconType::WarningIcon)
+                                                               .withTitle (isStems ? "A stem clips" : "The mix clips")
+                                                               .withMessage ((isStems ? "The loudest stem peaks at +" : "The mix peaks at +") + juce::String (peak, 1)
+                                                                             + " dBFS, over full scale, so the loudest parts are clipped. "
+                                                                               "Lower the master fader by at least " + juce::String (std::ceil (peak * 10.0f) / 10.0f, 1)
+                                                                             + " dB and mix down again.")
+                                                               .withButton ("OK"),
+                                      nullptr);
 }
 
 void MainComponent::askForNewSession()
@@ -580,6 +751,11 @@ void MainComponent::recordingFinished()
             undoManager.perform (new rifftrack::ClipEdit (engine, track, clipsBeforeRecording[(size_t) track], engine.getClips (track)));
 
     clipsChanged();
+
+    if (const auto health = engine.getLastTakeHealth(); ! health.isClean())
+        showPluginMessage ("The last take has audio gaps (" + juce::String (health.dropouts) + " dropouts, "
+                               + juce::String (health.droppedSamples) + " samples lost). Record it again if it matters.",
+                           true);
 }
 
 void MainComponent::clipsChanged()
@@ -621,6 +797,12 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress ('z', command | juce::ModifierKeys::shiftModifier, 0))
     {
         undoOrRedo (true);
+        return true;
+    }
+
+    if (key == juce::KeyPress (',', command, 0))
+    {
+        showAudioSettings();
         return true;
     }
 
@@ -691,9 +873,16 @@ void MainComponent::startPluginScan()
                               });
 }
 
-void MainComponent::showPluginMessage (const juce::String& message)
+// A message shows in the status line for a few seconds, and stays behind the message icon.
+void MainComponent::showPluginMessage (const juce::String& message, bool isWarning)
 {
-    pluginLabel.setText (message, juce::dontSendNotification);
+    const auto warning = isWarning || message.startsWith ("Couldn't");
+
+    messageButton.add (message, warning);
+    latestMessage = message;
+    latestMessageIsWarning = warning;
+    showMessageUntil = juce::Time::getMillisecondCounter() + messageShowMs;
+    updateStatus();
 }
 
 bool MainComponent::canChangeInserts()
@@ -991,6 +1180,7 @@ void MainComponent::showAudioSettings()
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned (selector.release());
     options.dialogTitle = "Audio Settings";
+    options.dialogBackgroundColour = console::panel;
     options.componentToCentreAround = this;
     options.useNativeTitleBar = true;
     audioSettingsWindow = options.launchAsync();
@@ -1190,17 +1380,18 @@ void MainComponent::updateStatus()
     recordButton.setColour (juce::TextButton::buttonColourId, state == rifftrack::TransportState::recording ? console::red : idleColour);
     playButton.setColour (juce::TextButton::buttonColourId, state == rifftrack::TransportState::playing ? console::green.darker (0.3f) : idleColour);
 
-    const auto health = engine.getLastTakeHealth();
-
-    takeWarningLabel.setText (health.isClean() ? juce::String()
-                                               : "Last take has audio gaps (" + juce::String (health.dropouts) + " dropouts, "
-                                                     + juce::String (health.droppedSamples) + " samples lost). Record it again if it matters.",
-                              juce::dontSendNotification);
+    if (juce::Time::getMillisecondCounter() < showMessageUntil)
+    {
+        statusLabel.setColour (juce::Label::textColourId, latestMessageIsWarning ? console::amber : console::cream);
+        statusLabel.setText (latestMessage, juce::dontSendNotification);
+        return;
+    }
 
     auto* device = deviceManager.getCurrentAudioDevice();
 
     if (device == nullptr)
     {
+        statusLabel.setColour (juce::Label::textColourId, console::dimText);
         statusLabel.setText ("No audio device", juce::dontSendNotification);
         return;
     }
@@ -1229,7 +1420,7 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
-    auto area = getLocalBounds().reduced (12);
+    auto area = getLocalBounds().reduced (windowMargin);
 
     auto toolbar = area.removeFromTop (transportHeight).reduced (0, 4);
     toolbarDividers.clear();
@@ -1252,8 +1443,13 @@ void MainComponent::resized()
 
     endGroup();
 
+    const auto iconsOnly = getWidth() < getMinimumWidth() + (transportLabelledWidth - transportIconWidth) * 4;
+
     for (auto* button : { &returnButton, &playButton, &stopButton, &recordButton })
-        place (*button, transportButtonWidth);
+    {
+        button->setIconOnly (iconsOnly);
+        place (*button, iconsOnly ? transportIconWidth : transportLabelledWidth);
+    }
 
     place (positionLabel, positionWidth);
     endGroup();
@@ -1262,21 +1458,16 @@ void MainComponent::resized()
     place (clickButton, transportButtonWidth);
     endGroup();
 
-    for (auto* button : { &addTrackButton, &consoleButton, &tunerButton, &effectsButton })
+    for (auto* button : { &consoleButton, &tunerButton, &effectsButton })
         place (*button, transportButtonWidth);
-
-    calibrateButton.setBounds (toolbar.removeFromRight (transportButtonWidth));
-    toolbar.removeFromRight (toolbarGap);
-    audioSettingsButton.setBounds (toolbar.removeFromRight (transportButtonWidth));
-    toolbar.removeFromRight (toolbarGroupGap / 2);
-    toolbarDividers.push_back (toolbar.removeFromRight (1).reduced (0, 4));
 
     if (tuner.isVisible())
         tuner.setBounds (area.removeFromTop (tunerHeight));
 
-    statusLabel.setBounds (area.removeFromBottom (statusHeight));
-    pluginLabel.setBounds (area.removeFromBottom (statusHeight));
-    takeWarningLabel.setBounds (area.removeFromBottom (statusHeight));
+    auto statusLine = area.removeFromBottom (statusHeight);
+    messageButton.setBounds (statusLine.removeFromLeft (statusHeight).reduced (0, 1));
+    statusLine.removeFromLeft (4);
+    statusLabel.setBounds (statusLine);
 
     const auto consoleShowing = consoleButton.getToggleState();
 
@@ -1298,6 +1489,7 @@ void MainComponent::resized()
 
     auto stripArea = area.removeFromLeft (stripWidth);
     area.removeFromLeft (8);
+
     trackScrollBar.setBounds (area.removeFromRight (trackScrollBarWidth).withTrimmedTop (TimelineView::rulerHeight)
                                   .withTrimmedBottom (TimelineView::scrollBarHeight));
     timeline->setBounds (area);
@@ -1305,6 +1497,74 @@ void MainComponent::resized()
     stripHolder.setBounds (stripArea.withTrimmedTop (TimelineView::rulerHeight).withTrimmedBottom (TimelineView::scrollBarHeight));
 
     layoutTracks();
+}
+
+int MainComponent::getMinimumWidth()
+{
+    constexpr auto groupGap = toolbarGroupGap - toolbarGap;
+    constexpr auto session = 3 * (transportButtonWidth + toolbarGap) + groupGap;
+    constexpr auto transport = 4 * (transportIconWidth + toolbarGap) + positionWidth + toolbarGap + groupGap;
+    constexpr auto tempo = tempoWidth + transportButtonWidth + 2 * toolbarGap + groupGap;
+    constexpr auto views = 3 * (transportButtonWidth + toolbarGap);
+
+    return session + transport + tempo + views + 2 * windowMargin;
+}
+
+// Where a dragged track would land: the gap between rows nearest the pointer.
+int MainComponent::dropPositionAt (float y) const
+{
+    const auto numTracks = (int) engine.getTrackOrder().size();
+    return juce::jlimit (0, numTracks, juce::roundToInt ((y + (float) trackScrollOffset) / (float) stripHeight));
+}
+
+void MainComponent::showTrackDrag (float y)
+{
+    const auto position = dropPositionAt (y);
+    dropIndicator.setBounds (0, position * stripHeight - trackScrollOffset - 1, stripHolder.getWidth(), 3);
+    dropIndicator.setVisible (true);
+    dropIndicator.toFront (false);
+}
+
+void MainComponent::finishTrackDrag (int track, float y)
+{
+    dropIndicator.setVisible (false);
+
+    const auto& order = engine.getTrackOrder();
+    const auto from = (int) std::distance (order.begin(), std::find (order.begin(), order.end(), track));
+    const auto gap = dropPositionAt (y);
+
+    // The track leaves its own place first, so a gap below it is one row higher.
+    const auto to = gap > from ? gap - 1 : gap;
+
+    if (to == from)
+        return;
+
+    engine.moveTrack (track, to);
+    layoutTracks();
+    saveSession();
+}
+
+juce::StringArray MainComponent::getMenuBarNames()
+{
+    return { "Settings" };
+}
+
+juce::PopupMenu MainComponent::getMenuForIndex (int, const juce::String&)
+{
+    juce::PopupMenu menu;
+    menu.addItem (audioSettingsMenuId, "Audio Settings...");
+    menu.addItem (calibrateMenuId, "Calibrate Latency...");
+    return menu;
+}
+
+void MainComponent::menuItemSelected (int menuItemId, int)
+{
+    if (menuItemId == audioSettingsMenuId)
+        showAudioSettings();
+    else if (menuItemId == calibrateMenuId)
+        confirmCalibration();
+    else if (menuItemId == aboutMenuId)
+        showAboutWindow (aboutWindow);
 }
 
 void MainComponent::layoutTracks()
@@ -1318,7 +1578,7 @@ void MainComponent::layoutTracks()
     consoleScrollBar.setVisible (false);
 
     const auto& order = engine.getTrackOrder();
-    const auto totalHeight = (int) order.size() * stripHeight;
+    const auto totalHeight = (int) order.size() * stripHeight + stripHeight;
 
     trackScrollBar.setRangeLimits (0.0, juce::jmax (1, totalHeight));
     trackScrollBar.setCurrentRange (trackScrollBar.getCurrentRangeStart(), juce::jmax (1, stripHolder.getHeight()));
@@ -1333,6 +1593,8 @@ void MainComponent::layoutTracks()
         strip.setBounds (0, (int) lane * stripHeight - trackScrollOffset, stripHolder.getWidth(), stripHeight);
     }
 
+    ghostTrack.setBounds (0, (int) order.size() * stripHeight - trackScrollOffset, stripHolder.getWidth(), stripHeight);
+
     timeline->setVerticalOffset (trackScrollOffset);
     timeline->refresh();
 }
@@ -1342,7 +1604,7 @@ void MainComponent::layoutConsole()
     trackScrollBar.setVisible (false);
 
     const auto& order = engine.getTrackOrder();
-    const auto totalWidth = (int) order.size() * channelWidth;
+    const auto totalWidth = ((int) order.size() + 1) * channelWidth;
 
     consoleScrollBar.setRangeLimits (0.0, juce::jmax (1, totalWidth));
     consoleScrollBar.setCurrentRange (consoleScrollBar.getCurrentRangeStart(), juce::jmax (1, stripHolder.getWidth()));
@@ -1357,6 +1619,8 @@ void MainComponent::layoutConsole()
         strip.setLayout (TrackStrip::Layout::channel);
         strip.setBounds ((int) channel * channelWidth - offset, 0, channelWidth, stripHolder.getHeight());
     }
+
+    ghostTrack.setBounds ((int) order.size() * channelWidth - offset, 0, channelWidth, stripHolder.getHeight());
 }
 
 void MainComponent::scrollBarMoved (juce::ScrollBar*, double)
@@ -1380,6 +1644,9 @@ void MainComponent::createStrip (int track)
     {
         strip = std::make_unique<TrackStrip> (engine, track);
         stripHolder.addAndMakeVisible (*strip);
+
+        strip->onDragMove = [this] (float y) { showTrackDrag (y); };
+        strip->onDragEnd = [this, track] (float y) { finishTrackDrag (track, y); };
 
         strip->onInsertClick = [this, track] (int slot, bool wantsMenu, juce::Component& button)
         {
@@ -1414,11 +1681,11 @@ juce::String MainComponent::nextTrackName (const juce::String& baseName) const
         return false;
     };
 
-    // Guitars are numbered from the start, because there are usually several.
-    if (baseName != "Guitar" && ! isTaken (baseName))
+    // Audio tracks are numbered from the start, because there are usually several.
+    if (baseName != "Audio" && ! isTaken (baseName))
         return baseName;
 
-    for (int number = baseName == "Guitar" ? 1 : 2;; ++number)
+    for (int number = baseName == "Audio" ? 1 : 2;; ++number)
     {
         const auto name = baseName + " " + juce::String (number);
 
@@ -1427,16 +1694,16 @@ juce::String MainComponent::nextTrackName (const juce::String& baseName) const
     }
 }
 
-void MainComponent::showAddTrackMenu()
+void MainComponent::showAddTrackMenu (juce::Point<int> screenPosition)
 {
-    const juce::StringArray names { "Guitar", "Bass", "Drums", "MIDI", "Vocal", "Audio" };
+    const juce::StringArray names { "Audio", "MIDI", "Drums" };
 
     juce::PopupMenu menu;
 
     for (int i = 0; i < names.size(); ++i)
         menu.addItem (i + 1, names[i]);
 
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (addTrackButton),
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ screenPosition.x, screenPosition.y, 1, 1 }),
                         [safeThis = juce::Component::SafePointer (this), names] (int result)
                         {
                             if (safeThis != nullptr && result > 0)

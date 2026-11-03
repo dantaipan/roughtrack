@@ -1,6 +1,10 @@
 {
     "version": 6,
-    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 25,
+        "patch": 0
+    },
     "configurePresets": [
         {
             "name": "base",
@@ -15,29 +19,57 @@
             "name": "debug",
             "displayName": "Debug",
             "inherits": "base",
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
         },
         {
             "name": "release",
             "displayName": "Release",
             "inherits": "base",
-            "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "dist",
+            "displayName": "Distribution",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
+                "RIFFTRACK_CODESIGN_IDENTITY": "Developer ID Application"
+            }
         }
     ],
     "buildPresets": [
-        { "name": "debug", "configurePreset": "debug" },
-        { "name": "release", "configurePreset": "release" }
+        {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "dist",
+            "configurePreset": "dist"
+        }
     ],
     "testPresets": [
         {
             "name": "debug",
             "configurePreset": "debug",
-            "output": { "outputOnFailure": true }
+            "output": {
+                "outputOnFailure": true
+            }
         },
         {
             "name": "release",
             "configurePreset": "release",
-            "output": { "outputOnFailure": true }
+            "output": {
+                "outputOnFailure": true
+            }
         }
     ]
 }

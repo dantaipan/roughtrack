@@ -13,7 +13,7 @@ class TimelineView final : public juce::Component,
                            private juce::ScrollBar::Listener
 {
 public:
-    static constexpr int rulerHeight = 24;
+    static constexpr int rulerHeight = 36;
     static constexpr int scrollBarHeight = 14;
 
     /** One style's grooves or fills, with those suited to the tempo first. */

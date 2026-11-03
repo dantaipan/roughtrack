@@ -5,6 +5,9 @@
 namespace
 {
 
+constexpr int gripWidth = 8;
+
+
 constexpr int stereoInputId = 1000;
 constexpr float meterDecay = 0.8f;
 constexpr int gap = 3;
@@ -136,6 +139,11 @@ void TrackStrip::applyLayout()
     gainSlider.setPopupDisplayEnabled (! isChannel, true, this);
     nameLabel.setJustificationType (isChannel ? juce::Justification::centred : juce::Justification::centredLeft);
 
+    // Rows are dragged to reorder the tracks; the console only follows.
+    const auto cursor = isChannel ? juce::MouseCursor::NormalCursor : juce::MouseCursor::DraggingHandCursor;
+    setMouseCursor (cursor);
+    nameLabel.setMouseCursor (cursor);
+
     updateVisibility();
     resized();
     repaint();
@@ -230,6 +238,30 @@ void TrackStrip::mouseDown (const juce::MouseEvent& event)
                         });
 }
 
+void TrackStrip::mouseDrag (const juce::MouseEvent& event)
+{
+    if (layout != Layout::row || event.mods.isPopupMenu() || (! dragging && event.getDistanceFromDragStart() < 4))
+        return;
+
+    dragging = true;
+    setAlpha (0.6f);
+
+    if (onDragMove != nullptr)
+        onDragMove (event.getEventRelativeTo (getParentComponent()).position.y);
+}
+
+void TrackStrip::mouseUp (const juce::MouseEvent& event)
+{
+    if (! dragging)
+        return;
+
+    dragging = false;
+    setAlpha (1.0f);
+
+    if (onDragEnd != nullptr)
+        onDragEnd (event.getEventRelativeTo (getParentComponent()).position.y);
+}
+
 void TrackStrip::refreshFromEngine()
 {
     const auto settings = engine.getTrackSettings (index);
@@ -286,6 +318,13 @@ void TrackStrip::paint (juce::Graphics& g)
     g.setColour (console::strip);
     g.fillRect (getLocalBounds().withTrimmedBottom (1));
 
+    // A grip, so it's clear the row can be dragged.
+    g.setColour (console::dimText.withAlpha (0.6f));
+
+    for (int row = 0; row < 3; ++row)
+        for (int column = 0; column < 2; ++column)
+            g.fillEllipse ((float) (4 + column * 4), (float) (getHeight() / 2 - 6 + row * 5), 2.0f, 2.0f);
+
     g.setColour (console::recess);
     g.fillRect (meterBounds);
 
@@ -306,7 +345,7 @@ void TrackStrip::resized()
 
 void TrackStrip::layOutRow()
 {
-    auto area = getLocalBounds().reduced (6, 6);
+    auto area = getLocalBounds().reduced (6, 6).withTrimmedLeft (gripWidth);
     auto top = area.removeFromTop (rowLineHeight);
 
     nameLabel.setBounds (top.removeFromLeft (112));

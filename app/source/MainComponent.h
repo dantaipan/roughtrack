@@ -1,9 +1,11 @@
 #pragma once
 
+#include "AboutWindow.h"
 #include "ChannelWindow.h"
 #include "MasterStrip.h"
 #include "PluginWindow.h"
 #include "TimelineView.h"
+#include "ToolbarButtons.h"
 #include "TrackStrip.h"
 #include "TunerRibbon.h"
 
@@ -19,6 +21,7 @@ juce::String describeAudioDevices();
 juce::String describeMicrophoneAccess();
 
 class MainComponent final : public juce::Component,
+                            private juce::MenuBarModel,
                             private juce::ChangeListener,
                             private juce::ScrollBar::Listener,
                             private juce::Timer
@@ -27,8 +30,8 @@ public:
     /** A session folder given here overrides the last one used, and isn't remembered. */
     explicit MainComponent (const juce::File& sessionToOpen = {});
 
-    /** The narrowest window that fits the whole toolbar. */
-    static constexpr int minimumWidth = 1390;
+    /** The narrowest window that fits the whole toolbar, with the transport showing only icons. */
+    static int getMinimumWidth();
     ~MainComponent() override;
 
     void paint (juce::Graphics&) override;
@@ -44,6 +47,10 @@ public:
     void showTuner (bool shouldShow);
 
 private:
+    juce::StringArray getMenuBarNames() override;
+    juce::PopupMenu getMenuForIndex (int menuIndex, const juce::String& menuName) override;
+    void menuItemSelected (int menuItemId, int menuIndex) override;
+
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void timerCallback() override;
     void scrollBarMoved (juce::ScrollBar*, double newRangeStart) override;
@@ -56,6 +63,10 @@ private:
     void updateStatus();
 
     void showAudioSettings();
+    void askWhereToMixDown();
+    void mixDown (const juce::File&);
+    void exportStems();
+    void mixdownFinished (const juce::File&, const rifftrack::AudioEngine::BounceResult&, bool isStems);
     void restoreChosenAudioDevice();
     void confirmCalibration();
     void finishCalibration();
@@ -66,7 +77,10 @@ private:
     void loadDefaultInstrument (int track);
     void confirmDeleteTrack (int track);
     void deleteTrack (int track);
-    void showAddTrackMenu();
+    void showAddTrackMenu (juce::Point<int> screenPosition);
+    int dropPositionAt (float y) const;
+    void showTrackDrag (float y);
+    void finishTrackDrag (int track, float y);
     void layoutTracks();
     void layoutConsole();
     void updateTuner();
@@ -97,7 +111,7 @@ private:
     void refreshInsert (int track, int slot);
     void restoreInserts();
     void saveInserts();
-    void showPluginMessage (const juce::String&);
+    void showPluginMessage (const juce::String&, bool isWarning = false);
     bool canChangeInserts();
     juce::File insertsFile() const;
 
@@ -109,13 +123,20 @@ private:
     std::unique_ptr<rifftrack::PluginLibrary> pluginLibrary;
     juce::TooltipWindow tooltips { this };
 
-    juce::TextButton returnButton { "Return" }, playButton { "Play" }, recordButton { "Record" }, stopButton { "Stop" };
-    juce::TextButton sessionButton { "Session" }, effectsButton { "Effects" }, addTrackButton { "+ Track" }, undoButton { "Undo" }, redoButton { "Redo" };
-    juce::TextButton clickButton { "Click" }, audioSettingsButton { "Audio" }, calibrateButton { "Calibrate" };
+    TransportButton returnButton { "Return", TransportButton::Icon::returnToStart }, playButton { "Play", TransportButton::Icon::play },
+        stopButton { "Stop", TransportButton::Icon::stop }, recordButton { "Record", TransportButton::Icon::record };
+    juce::TextButton sessionButton { "Session" }, effectsButton { "Effects" }, undoButton { "Undo" }, redoButton { "Redo" };
+    juce::TextButton clickButton { "Click" };
+    GhostTrack ghostTrack;
+    juce::Label dropIndicator;
     juce::TextButton tunerButton { "Tuner" }, consoleButton { "Console" };
     juce::Slider tempoSlider;
     std::vector<juce::Rectangle<int>> toolbarDividers;
-    juce::Label positionLabel, statusLabel, takeWarningLabel, pluginLabel;
+    juce::Label positionLabel, statusLabel;
+    MessageButton messageButton;
+    juce::String latestMessage;
+    bool latestMessageIsWarning = false;
+    juce::uint32 showMessageUntil = 0;
 
     std::array<std::unique_ptr<TrackStrip>, rifftrack::maxTracks> strips;
     juce::Component stripHolder;
@@ -142,6 +163,7 @@ private:
 
     bool calibrating = false;
     bool latencyIsCalibrated = false;
-    juce::Component::SafePointer<juce::DialogWindow> audioSettingsWindow;
+    juce::Component::SafePointer<juce::DialogWindow> audioSettingsWindow, aboutWindow;
     juce::String lastAudioRestoreFrom;
+    std::unique_ptr<juce::FileChooser> mixdownChooser;
 };
