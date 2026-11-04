@@ -1,9 +1,9 @@
-#include "rifftrack/MidiSequencer.h"
+#include "roughtrack/MidiSequencer.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -115,4 +115,4 @@ void MidiSequencer::endSoundingNotes (juce::MidiBuffer& output, int sampleOffset
     channelsUsed.reset();
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

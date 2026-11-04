@@ -1,4 +1,4 @@
-add_executable(rifftrack_tests
+add_executable(roughtrack_tests
     AudioDevicesTests.cpp
     AudioEngineTests.cpp
     BounceTests.cpp
@@ -25,18 +25,18 @@ add_executable(rifftrack_tests
     ../app/source/TunerRibbon.cpp
     ../app/source/VuMeter.cpp)
 
-target_include_directories(rifftrack_tests PRIVATE ../app/source)
+target_include_directories(roughtrack_tests PRIVATE ../app/source)
 
-target_link_libraries(rifftrack_tests PRIVATE
-    rifftrack_engine
+target_link_libraries(roughtrack_tests PRIVATE
+    roughtrack_engine
     Catch2::Catch2WithMain)
 
-target_compile_definitions(rifftrack_tests PRIVATE
-    RIFFTRACK_BENCH_PATH="$<TARGET_FILE:rifftrack_bench>"
-    RIFFTRACK_NAM_EXAMPLES="${neuralampmodelercore_SOURCE_DIR}/example_models")
+target_compile_definitions(roughtrack_tests PRIVATE
+    ROUGHTRACK_BENCH_PATH="$<TARGET_FILE:roughtrack_bench>"
+    ROUGHTRACK_NAM_EXAMPLES="${neuralampmodelercore_SOURCE_DIR}/example_models")
 
-add_dependencies(rifftrack_tests rifftrack_bench)
+add_dependencies(roughtrack_tests roughtrack_bench)
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)
 include(Catch)
-catch_discover_tests(rifftrack_tests)
+catch_discover_tests(roughtrack_tests)

@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Measures true round-trip latency by playing sweeps out of the interface and
@@ -42,4 +42,4 @@ private:
     int cursor = 0;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

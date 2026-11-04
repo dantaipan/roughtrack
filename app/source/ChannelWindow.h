@@ -2,7 +2,7 @@
 
 #include "ParameterPanel.h"
 
-#include "rifftrack/AudioEngine.h"
+#include "roughtrack/AudioEngine.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -10,7 +10,7 @@
 class ChannelPanel final : public juce::Component
 {
 public:
-    ChannelPanel (rifftrack::AudioEngine&, int track, juce::File startFolder);
+    ChannelPanel (roughtrack::AudioEngine&, int track, juce::File startFolder);
 
     /** Called after anything loads, with the folder to start from next time. */
     std::function<void (const juce::File& folder)> onLoaded;
@@ -23,7 +23,7 @@ private:
     void chooseFile (const juce::String& title, const juce::String& patterns, std::function<void (const juce::File&)> onChosen);
     void showResult (const juce::Result&);
 
-    rifftrack::AudioEngine& engine;
+    roughtrack::AudioEngine& engine;
     const int track;
     juce::File folder;
 

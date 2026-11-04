@@ -1,4 +1,4 @@
-#include "rifftrack/AmpModel.h"
+#include "roughtrack/AmpModel.h"
 
 #include "NAM/get_dsp.h"
 #include "NAM/slimmable.h"
@@ -8,7 +8,7 @@
 #include <cmath>
 #include <filesystem>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -95,4 +95,4 @@ void AmpModel::process (float* samples, int numSamples) noexcept
     }
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

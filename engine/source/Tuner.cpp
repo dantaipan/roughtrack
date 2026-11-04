@@ -1,10 +1,10 @@
-#include "rifftrack/Tuner.h"
+#include "roughtrack/Tuner.h"
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include <cmath>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -165,4 +165,4 @@ double PitchDetector::refineLag (const float* samples, int coarseLag) const
     return curve > 0.0 ? best + 0.5 * (before - after) / curve : (double) best;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

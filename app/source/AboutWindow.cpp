@@ -16,7 +16,7 @@ const char* const creditsText =
     "Drums\n"
     "DRSKit by Lars Muldjord and Bent Bisballe Nyeng, recorded on a kit by Jes Eiler of DRSDrums. "
     "Drum samples provided by DrumGizmo.org, under Creative Commons Attribution 4.0 "
-    "(creativecommons.org/licenses/by/4.0). Mixed to stereo for RiffTrack: each drum's close, overhead "
+    "(creativecommons.org/licenses/by/4.0). Mixed to stereo for RoughTrack: each drum's close, overhead "
     "and room microphones were combined, a subset of hits was kept, each hit was trimmed and faded, "
     "levels were set, and the audio was converted to 48 kHz.\n\n"
     "Grooves\n"
@@ -57,11 +57,11 @@ void AboutComponent::paint (juce::Graphics& g)
 
     g.setColour (console::cream);
     g.setFont (juce::FontOptions (26.0f, juce::Font::bold));
-    g.drawText ("RiffTrack", area.removeFromTop (34), juce::Justification::centred);
+    g.drawText ("RoughTrack", area.removeFromTop (34), juce::Justification::centred);
 
     g.setColour (console::dimText);
     g.setFont (juce::FontOptions (14.0f));
-    g.drawText ("Version " RIFFTRACK_VERSION, area.removeFromTop (22), juce::Justification::centred);
+    g.drawText ("Version " ROUGHTRACK_VERSION, area.removeFromTop (22), juce::Justification::centred);
 
     g.setColour (console::cream);
     g.drawText ("A simplified multitrack DAW for macOS.", area.removeFromTop (26), juce::Justification::centred);
@@ -89,7 +89,7 @@ void showAboutWindow (juce::Component::SafePointer<juce::DialogWindow>& window)
 
     juce::DialogWindow::LaunchOptions options;
     options.content.setOwned (new AboutComponent());
-    options.dialogTitle = "About RiffTrack";
+    options.dialogTitle = "About RoughTrack";
     options.dialogBackgroundColour = console::panel;
     options.useNativeTitleBar = true;
     options.resizable = false;

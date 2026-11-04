@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 struct AudioDeviceInfo
@@ -48,4 +48,4 @@ bool shouldRestoreAudioDevice (const AudioDeviceChoice& chosen,
 /** One-way delay added by a single audio buffer. */
 double bufferLatencyMs (int bufferSizeSamples, double sampleRate);
 
-} // namespace rifftrack
+} // namespace roughtrack

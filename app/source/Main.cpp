@@ -30,11 +30,11 @@ public:
     }
 };
 
-class RiffTrackApplication final : public juce::JUCEApplication
+class RoughTrackApplication final : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return "RiffTrack"; }
-    const juce::String getApplicationVersion() override { return RIFFTRACK_VERSION; }
+    const juce::String getApplicationName() override { return "RoughTrack"; }
+    const juce::String getApplicationVersion() override { return ROUGHTRACK_VERSION; }
 
     // Plugin scanning relaunches this binary, once for each plugin.
     bool moreThanOneInstanceAllowed() override { return isScanChild() || isSnapshot(); }
@@ -48,9 +48,9 @@ public:
             const auto args = getCommandLineParameterArray();
 
             juce::AudioPluginFormatManager formats;
-            rifftrack::addPluginFormats (formats);
+            roughtrack::addPluginFormats (formats);
 
-            const auto found = args.size() == 4 && rifftrack::writePluginScanResult (formats, { args[1], args[2] }, juce::File (args[3]));
+            const auto found = args.size() == 4 && roughtrack::writePluginScanResult (formats, { args[1], args[2] }, juce::File (args[3]));
 
             setApplicationReturnValue (found ? 0 : 1);
             quit();
@@ -140,4 +140,4 @@ private:
 
 } // namespace
 
-START_JUCE_APPLICATION (RiffTrackApplication)
+START_JUCE_APPLICATION (RoughTrackApplication)

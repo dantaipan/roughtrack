@@ -1,13 +1,13 @@
 #pragma once
 
-#include "rifftrack/Drums.h"
+#include "roughtrack/Drums.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
 #include <array>
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Recordings of each drum, held in memory and resampled to the session's rate
@@ -54,4 +54,4 @@ private:
     std::array<Samples, (size_t) DrumPiece::count> pieces;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

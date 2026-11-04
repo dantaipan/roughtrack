@@ -13,7 +13,7 @@ constexpr int faderWidth = 64;
 
 } // namespace
 
-MasterStrip::MasterStrip (rifftrack::AudioEngine& engineToControl) : engine (engineToControl)
+MasterStrip::MasterStrip (roughtrack::AudioEngine& engineToControl) : engine (engineToControl)
 {
     nameLabel.setText ("Master", juce::dontSendNotification);
     nameLabel.setJustificationType (juce::Justification::centred);

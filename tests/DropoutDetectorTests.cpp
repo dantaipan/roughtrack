@@ -1,9 +1,9 @@
-#include "rifftrack/DropoutDetector.h"
+#include "roughtrack/DropoutDetector.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using rifftrack::DropoutDetector;
+using roughtrack::DropoutDetector;
 
 namespace
 {

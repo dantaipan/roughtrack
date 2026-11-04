@@ -1,6 +1,6 @@
-#include "rifftrack/PluginScanner.h"
+#include "roughtrack/PluginScanner.h"
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -146,4 +146,4 @@ bool writePluginScanResult (juce::AudioPluginFormatManager& formats, const Plugi
     return false;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

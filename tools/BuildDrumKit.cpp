@@ -1,6 +1,6 @@
 #include "BuildDrumKit.h"
 
-#include "rifftrack/Drums.h"
+#include "roughtrack/Drums.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -31,7 +31,7 @@ struct Microphone
 
 struct KitPiece
 {
-    rifftrack::DrumPiece piece;
+    roughtrack::DrumPiece piece;
     const char* instrument;
     float loudestDb;
     double maximumSeconds;
@@ -44,7 +44,7 @@ const std::vector<Microphone> roomMicrophones { { "OHL", 0.7f, -1.0f }, { "OHR",
 
 const std::vector<KitPiece>& getKitPieces()
 {
-    using Piece = rifftrack::DrumPiece;
+    using Piece = roughtrack::DrumPiece;
 
     static const std::vector<KitPiece> pieces {
         { Piece::kick,        "Kdrum_with_contact", -11.0f, 1.0, false, { { "Kdrum_back", 1.0f, 0.0f }, { "Kdrum_front", 0.6f, 0.0f } } },
@@ -269,7 +269,7 @@ int runBuildDrumKit (const juce::File& kitFolder, const juce::File& outputFolder
             loudest = juce::jmax (loudest, measureLevel (mix));
 
         const auto gain = juce::Decibels::decibelsToGain (piece.loudestDb - headroomDb) / loudest;
-        const juce::String name (rifftrack::getPieceName (piece.piece));
+        const juce::String name (roughtrack::getPieceName (piece.piece));
 
         for (int layer = 0; layer < layers; ++layer)
         {

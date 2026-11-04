@@ -1,11 +1,11 @@
-#include "rifftrack/Metronome.h"
+#include "roughtrack/Metronome.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
 #include <vector>
 
-using rifftrack::addClick;
+using roughtrack::addClick;
 
 TEST_CASE ("The click sounds on each beat and stays silent between them")
 {

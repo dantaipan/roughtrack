@@ -21,7 +21,7 @@ constexpr int deleteMenuId = 2;
 constexpr int firstQuantizeMenuId = 10;
 constexpr int firstTakeMenuId = 100;
 constexpr int firstGrooveMenuId = 100000;
-constexpr juce::int64 midiSnapTicks = rifftrack::ticksPerBeat / 4;
+constexpr juce::int64 midiSnapTicks = roughtrack::ticksPerBeat / 4;
 
 struct QuantizeGrid
 {
@@ -29,11 +29,11 @@ struct QuantizeGrid
     int ticks;
 };
 
-constexpr QuantizeGrid quantizeGrids[] { { "Quarter Notes", rifftrack::ticksPerBeat },
-                                         { "Eighth Notes", rifftrack::ticksPerBeat / 2 },
-                                         { "Sixteenth Notes", rifftrack::ticksPerBeat / 4 },
-                                         { "Eighth Triplets (Shuffle)", rifftrack::ticksPerBeat / 3 },
-                                         { "Sixteenth Triplets", rifftrack::ticksPerBeat / 6 } };
+constexpr QuantizeGrid quantizeGrids[] { { "Quarter Notes", roughtrack::ticksPerBeat },
+                                         { "Eighth Notes", roughtrack::ticksPerBeat / 2 },
+                                         { "Sixteenth Notes", roughtrack::ticksPerBeat / 4 },
+                                         { "Eighth Triplets (Shuffle)", roughtrack::ticksPerBeat / 3 },
+                                         { "Sixteenth Triplets", roughtrack::ticksPerBeat / 6 } };
 
 
 constexpr float noteHeight = 2.0f;
@@ -52,7 +52,7 @@ const auto gridColour = juce::Colour (0xff34373c);
 
 } // namespace
 
-TimelineView::TimelineView (rifftrack::AudioEngine& engineToShow, int laneHeightToUse)
+TimelineView::TimelineView (roughtrack::AudioEngine& engineToShow, int laneHeightToUse)
     : engine (engineToShow), laneHeight (laneHeightToUse)
 {
     formats.registerBasicFormats();
@@ -121,17 +121,17 @@ juce::int64 TimelineView::pixelsToSamples (float pixels) const
 
 bool TimelineView::isDrums (int track) const noexcept
 {
-    return engine.getTrackType (track) == rifftrack::TrackType::drums;
+    return engine.getTrackType (track) == roughtrack::TrackType::drums;
 }
 
 bool TimelineView::isMidi (int track) const noexcept
 {
-    return engine.getTrackType (track) == rifftrack::TrackType::midi;
+    return engine.getTrackType (track) == roughtrack::TrackType::midi;
 }
 
 double TimelineView::samplesPerTick() const
 {
-    return 60.0 * sampleRate() / engine.getTempo() / rifftrack::ticksPerBeat;
+    return 60.0 * sampleRate() / engine.getTempo() / roughtrack::ticksPerBeat;
 }
 
 juce::int64 TimelineView::toClipUnits (int track, juce::int64 sample) const
@@ -146,7 +146,7 @@ juce::int64 TimelineView::toSamples (int track, juce::int64 clipPosition) const
 
 double TimelineView::samplesPerBar() const
 {
-    return rifftrack::beatsPerBar * 60.0 * sampleRate() / engine.getTempo();
+    return roughtrack::beatsPerBar * 60.0 * sampleRate() / engine.getTempo();
 }
 
 float TimelineView::pixelsPerBar() const
@@ -191,7 +191,7 @@ juce::Rectangle<int> TimelineView::laneBounds (int track) const
     return { 0, rulerHeight + lane * laneHeight - verticalOffset, getWidth(), laneHeight };
 }
 
-juce::Rectangle<float> TimelineView::clipBounds (int track, const rifftrack::Clip& clip) const
+juce::Rectangle<float> TimelineView::clipBounds (int track, const roughtrack::Clip& clip) const
 {
     const auto lane = laneBounds (track).reduced (0, 3).toFloat();
     const auto left = sampleToX (toSamples (track, clip.timelineStart));
@@ -199,7 +199,7 @@ juce::Rectangle<float> TimelineView::clipBounds (int track, const rifftrack::Cli
     return { left, lane.getY(), juce::jmax (2.0f, sampleToX (toSamples (track, clip.timelineEnd())) - left), lane.getHeight() };
 }
 
-juce::Rectangle<float> TimelineView::partBounds (int track, const rifftrack::DrumPart& part) const
+juce::Rectangle<float> TimelineView::partBounds (int track, const roughtrack::DrumPart& part) const
 {
     const auto lane = laneBounds (track).reduced (0, 3).toFloat();
     const auto left = barToX (part.startBar);
@@ -207,12 +207,12 @@ juce::Rectangle<float> TimelineView::partBounds (int track, const rifftrack::Dru
     return { left, lane.getY(), juce::jmax (2.0f, barToX (part.endBar()) - left), lane.getHeight() };
 }
 
-const rifftrack::DrumPartList& TimelineView::partsToShow (int track) const
+const roughtrack::DrumPartList& TimelineView::partsToShow (int track) const
 {
     return isDragging && dragging.track == track ? partsPreview : engine.getDrumParts (track);
 }
 
-const rifftrack::ClipList& TimelineView::clipsToShow (int track) const
+const roughtrack::ClipList& TimelineView::clipsToShow (int track) const
 {
     return isDragging && dragging.track == track ? dragPreview : engine.getClips (track);
 }
@@ -331,7 +331,7 @@ void TimelineView::updatePlayhead()
 {
     const auto newX = sampleToX (engine.getPosition());
 
-    if (engine.getState() != rifftrack::TransportState::stopped && newX > (float) getWidth())
+    if (engine.getState() != roughtrack::TransportState::stopped && newX > (float) getWidth())
     {
         viewStartSeconds = (double) engine.getPosition() / sampleRate();
         updateScrollBar();
@@ -426,7 +426,7 @@ void TimelineView::paintRuler (juce::Graphics& g)
     }
 }
 
-void TimelineView::paintClip (juce::Graphics& g, int track, const rifftrack::Clip& clip, bool isSelected)
+void TimelineView::paintClip (juce::Graphics& g, int track, const roughtrack::Clip& clip, bool isSelected)
 {
     const auto bounds = clipBounds (track, clip);
 
@@ -464,7 +464,7 @@ void TimelineView::paintClip (juce::Graphics& g, int track, const rifftrack::Cli
     g.drawRoundedRectangle (bounds, 3.0f, isSelected ? 2.0f : 1.0f);
 }
 
-void TimelineView::paintNotes (juce::Graphics& g, const rifftrack::Clip& clip, juce::Rectangle<float> bounds)
+void TimelineView::paintNotes (juce::Graphics& g, const roughtrack::Clip& clip, juce::Rectangle<float> bounds)
 {
     const auto* take = engine.findMidiTake (clip.file);
 
@@ -512,7 +512,7 @@ void TimelineView::paintBarLines (juce::Graphics& g, juce::Rectangle<int> lane)
         g.drawVerticalLine ((int) barToX (bar), (float) lane.getY(), (float) lane.getBottom());
 }
 
-void TimelineView::paintPart (juce::Graphics& g, int track, const rifftrack::DrumPart& part, bool isSelected)
+void TimelineView::paintPart (juce::Graphics& g, int track, const roughtrack::DrumPart& part, bool isSelected)
 {
     const auto bounds = partBounds (track, part);
 
@@ -537,9 +537,9 @@ void TimelineView::paintPart (juce::Graphics& g, int track, const rifftrack::Dru
 }
 
 // Kicks along the bottom and snares above them show the pattern at a glance.
-void TimelineView::paintHits (juce::Graphics& g, const rifftrack::DrumPart& part, const rifftrack::Groove& groove, juce::Rectangle<float> bounds)
+void TimelineView::paintHits (juce::Graphics& g, const roughtrack::DrumPart& part, const roughtrack::Groove& groove, juce::Rectangle<float> bounds)
 {
-    const auto pixelsPerBeat = pixelsPerBar() / rifftrack::beatsPerBar;
+    const auto pixelsPerBeat = pixelsPerBar() / roughtrack::beatsPerBar;
     const auto firstBar = juce::jmax (part.startBar, xToBar (0.0f));
     const auto kickY = bounds.getBottom() - 8.0f;
     const auto snareY = bounds.getBottom() - 18.0f;
@@ -554,11 +554,11 @@ void TimelineView::paintHits (juce::Graphics& g, const rifftrack::DrumPart& part
         {
             const auto& hit = groove.hits[(size_t) i];
 
-            if (hit.piece != rifftrack::DrumPiece::kick && hit.piece != rifftrack::DrumPiece::snare)
+            if (hit.piece != roughtrack::DrumPiece::kick && hit.piece != roughtrack::DrumPiece::snare)
                 continue;
 
-            const auto x = barToX (bar) + (float) (hit.beat - barInGroove * rifftrack::beatsPerBar) * pixelsPerBeat;
-            g.fillRect (x, hit.piece == rifftrack::DrumPiece::kick ? kickY : snareY, 1.5f, 6.0f);
+            const auto x = barToX (bar) + (float) (hit.beat - barInGroove * roughtrack::beatsPerBar) * pixelsPerBeat;
+            g.fillRect (x, hit.piece == roughtrack::DrumPiece::kick ? kickY : snareY, 1.5f, 6.0f);
         }
     }
 }
@@ -577,7 +577,7 @@ void TimelineView::resized()
 
 bool TimelineView::canEdit()
 {
-    if (engine.getState() == rifftrack::TransportState::stopped)
+    if (engine.getState() == roughtrack::TransportState::stopped)
         return true;
 
     if (onMessage != nullptr)
@@ -641,9 +641,9 @@ void TimelineView::mouseDrag (const juce::MouseEvent& event)
 
         switch (dragging.zone)
         {
-            case Zone::body:  partsPreview = rifftrack::movePart (partsOriginal, dragging.clip, part.startBar + bars); break;
-            case Zone::start: partsPreview = rifftrack::trimPartStart (partsOriginal, dragging.clip, part.startBar + bars); break;
-            case Zone::end:   partsPreview = rifftrack::trimPartEnd (partsOriginal, dragging.clip, part.endBar() + bars); break;
+            case Zone::body:  partsPreview = roughtrack::movePart (partsOriginal, dragging.clip, part.startBar + bars); break;
+            case Zone::start: partsPreview = roughtrack::trimPartStart (partsOriginal, dragging.clip, part.startBar + bars); break;
+            case Zone::end:   partsPreview = roughtrack::trimPartEnd (partsOriginal, dragging.clip, part.endBar() + bars); break;
         }
 
         repaint();
@@ -659,9 +659,9 @@ void TimelineView::mouseDrag (const juce::MouseEvent& event)
 
     switch (dragging.zone)
     {
-        case Zone::body:  dragPreview = rifftrack::moveClip (dragOriginal, dragging.clip, clip.timelineStart + delta); break;
-        case Zone::start: dragPreview = rifftrack::trimClipStart (dragOriginal, dragging.clip, clip.timelineStart + delta); break;
-        case Zone::end:   dragPreview = rifftrack::trimClipEnd (dragOriginal, dragging.clip, clip.timelineEnd() + delta); break;
+        case Zone::body:  dragPreview = roughtrack::moveClip (dragOriginal, dragging.clip, clip.timelineStart + delta); break;
+        case Zone::start: dragPreview = roughtrack::trimClipStart (dragOriginal, dragging.clip, clip.timelineStart + delta); break;
+        case Zone::end:   dragPreview = roughtrack::trimClipEnd (dragOriginal, dragging.clip, clip.timelineEnd() + delta); break;
     }
 
     repaint();
@@ -725,7 +725,7 @@ void TimelineView::addTake (int track, const juce::File& file)
         if (take == nullptr || onEdit == nullptr)
             return;
 
-        rifftrack::Clip clip;
+        roughtrack::Clip clip;
         clip.file = file;
         clip.timelineStart = toClipUnits (track, engine.getPosition());
         clip.length = take->length;
@@ -742,7 +742,7 @@ void TimelineView::addTake (int track, const juce::File& file)
     if (reader == nullptr || onEdit == nullptr)
         return;
 
-    rifftrack::Clip clip;
+    roughtrack::Clip clip;
     clip.file = file;
     clip.timelineStart = engine.getPosition();
     clip.length = reader->lengthInSamples;
@@ -753,7 +753,7 @@ void TimelineView::addTake (int track, const juce::File& file)
     onEdit (track, clips, "Add Take");
 }
 
-juce::PopupMenu TimelineView::createGrooveMenu (const std::vector<rifftrack::Groove>& grooves,
+juce::PopupMenu TimelineView::createGrooveMenu (const std::vector<roughtrack::Groove>& grooves,
                                                 const juce::String& style,
                                                 bool fills,
                                                 double beatsPerMinute)
@@ -762,7 +762,7 @@ juce::PopupMenu TimelineView::createGrooveMenu (const std::vector<rifftrack::Gro
 
     for (size_t i = 0; i < grooves.size(); ++i)
         if (grooves[i].style == style && grooves[i].isFill == fills)
-            (rifftrack::isNearTempo (grooves[i], beatsPerMinute) ? near : others).push_back ((int) i);
+            (roughtrack::isNearTempo (grooves[i], beatsPerMinute) ? near : others).push_back ((int) i);
 
     juce::PopupMenu menu;
 
@@ -838,7 +838,7 @@ void TimelineView::showDrumMenu (const Hit& hit, juce::Point<float> position)
                             else if (! hit.isClip() || hit.clip >= (int) parts.size())
                                 return;
                             else if (result == splitMenuId)
-                                safeThis->onDrumEdit (hit.track, rifftrack::splitPart (parts, hit.clip, splitBar), "Split Part");
+                                safeThis->onDrumEdit (hit.track, roughtrack::splitPart (parts, hit.clip, splitBar), "Split Part");
                             else if (result == deleteMenuId)
                                 safeThis->deleteSelectedClip();
                         });
@@ -899,7 +899,7 @@ void TimelineView::showMenu (const Hit& hit, juce::Point<float> position)
                             else if (result >= firstQuantizeMenuId)
                                 safeThis->quantizeClip (hit.track, hit.clip, quantizeGrids[result - firstQuantizeMenuId].ticks);
                             else if (result == splitMenuId)
-                                safeThis->onEdit (hit.track, rifftrack::splitClip (clips, hit.clip, splitAt), "Split Clip");
+                                safeThis->onEdit (hit.track, roughtrack::splitClip (clips, hit.clip, splitAt), "Split Clip");
                             else if (result == deleteMenuId)
                                 safeThis->deleteSelectedClip();
                         });
@@ -920,7 +920,7 @@ bool TimelineView::deleteSelectedClip()
 
     if (isDrums (selected.track))
     {
-        const auto editedParts = rifftrack::removePart (engine.getDrumParts (selected.track), selected.clip);
+        const auto editedParts = roughtrack::removePart (engine.getDrumParts (selected.track), selected.clip);
         const auto drumTrack = selected.track;
 
         selected = {};
@@ -931,7 +931,7 @@ bool TimelineView::deleteSelectedClip()
         return true;
     }
 
-    const auto edited = rifftrack::removeClip (engine.getClips (selected.track), selected.clip);
+    const auto edited = roughtrack::removeClip (engine.getClips (selected.track), selected.clip);
     const auto track = selected.track;
 
     selected = {};

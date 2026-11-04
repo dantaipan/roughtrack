@@ -1,10 +1,10 @@
 #pragma once
 
-#include "rifftrack/DrumKit.h"
+#include "roughtrack/DrumKit.h"
 
 #include <array>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Plays a track's drum parts. Like the click, it works out what to play from
@@ -61,4 +61,4 @@ private:
     int nextAge = 0;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

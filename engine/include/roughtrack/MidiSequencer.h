@@ -1,13 +1,13 @@
 #pragma once
 
-#include "rifftrack/Clip.h"
-#include "rifftrack/Midi.h"
+#include "roughtrack/Clip.h"
+#include "roughtrack/Midi.h"
 
 #include <array>
 #include <bitset>
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Plays a track's MIDI clips, working out what's due from the timeline position
@@ -47,4 +47,4 @@ private:
     std::bitset<16> channelsUsed;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

@@ -10,15 +10,15 @@ constexpr int margin = 12;
 constexpr int numLoadRows = 3;
 } // namespace
 
-ChannelPanel::ChannelPanel (rifftrack::AudioEngine& engineToUse, int trackIndex, juce::File startFolder)
+ChannelPanel::ChannelPanel (roughtrack::AudioEngine& engineToUse, int trackIndex, juce::File startFolder)
     : engine (engineToUse),
       track (trackIndex),
       folder (std::move (startFolder)),
       parameters (
-          (int) rifftrack::ChannelParameter::count,
-          [] (int i) -> const rifftrack::ParameterInfo& { return rifftrack::getParameterInfo ((rifftrack::ChannelParameter) i); },
-          [this] (int i) { return engine.getChannel (track).getParameter ((rifftrack::ChannelParameter) i); },
-          [this] (int i, float value) { engine.getChannel (track).setParameter ((rifftrack::ChannelParameter) i, value); })
+          (int) roughtrack::ChannelParameter::count,
+          [] (int i) -> const roughtrack::ParameterInfo& { return roughtrack::getParameterInfo ((roughtrack::ChannelParameter) i); },
+          [this] (int i) { return engine.getChannel (track).getParameter ((roughtrack::ChannelParameter) i); },
+          [this] (int i, float value) { engine.getChannel (track).setParameter ((roughtrack::ChannelParameter) i, value); })
 {
     for (auto* child : std::initializer_list<juce::Component*> { &ampButton, &clearAmpButton, &cabinetButton, &clearCabinetButton,
                                                                  &ampLabel, &cabinetLabel, &messageLabel, &parameters })
@@ -72,7 +72,7 @@ ChannelPanel::ChannelPanel (rifftrack::AudioEngine& engineToUse, int trackIndex,
 
 bool ChannelPanel::hasSources() const
 {
-    return engine.getTrackType (track) == rifftrack::TrackType::audio;
+    return engine.getTrackType (track) == roughtrack::TrackType::audio;
 }
 
 void ChannelPanel::chooseFile (const juce::String& title, const juce::String& patterns, std::function<void (const juce::File&)> onChosen)

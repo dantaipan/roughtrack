@@ -1,7 +1,7 @@
 #include "MainComponent.h"
 
-#include "rifftrack/AudioDevices.h"
-#include "rifftrack/MicrophoneAccess.h"
+#include "roughtrack/AudioDevices.h"
+#include "roughtrack/MicrophoneAccess.h"
 
 #include "ConsoleLookAndFeel.h"
 
@@ -60,7 +60,7 @@ juce::File drumsFolder()
 
 juce::File sessionsFolder()
 {
-    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("RiffTrack");
+    return juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("RoughTrack");
 }
 
 /** Plugins grouped by maker, with ids that index the library's list. */
@@ -88,10 +88,34 @@ juce::PopupMenu createPluginMenu (const std::vector<juce::PluginDescription>& pl
 juce::PropertiesFile::Options settingsOptions()
 {
     juce::PropertiesFile::Options options;
-    options.applicationName = "RiffTrack";
+    options.applicationName = "RoughTrack";
     options.filenameSuffix = ".settings";
     options.osxLibrarySubFolder = "Application Support";
     return options;
+}
+
+/** The app was called RiffTrack until 0.7.0. Moves its sessions folder, settings and plugin list
+    to the new names, once, so nothing is lost. Anything already under the new name is left alone. */
+void moveFilesFromOldName()
+{
+    const auto moveIfNew = [] (const juce::File& from, const juce::File& to)
+    {
+        if (from.exists() && ! to.exists())
+            from.moveFileTo (to);
+    };
+
+    const auto music = juce::File::getSpecialLocation (juce::File::userMusicDirectory);
+    moveIfNew (music.getChildFile ("RiffTrack"), sessionsFolder());
+
+    const auto settingsFile = settingsOptions().getDefaultFile();
+    moveIfNew (settingsFile.getSiblingFile ("RiffTrack.settings"), settingsFile);
+    moveIfNew (settingsFile.getSiblingFile ("RiffTrack.plugins.xml"), settingsFile.getSiblingFile ("RoughTrack.plugins.xml"));
+}
+
+std::unique_ptr<juce::PropertiesFile> openSettings()
+{
+    moveFilesFromOldName();
+    return std::make_unique<juce::PropertiesFile> (settingsOptions());
 }
 
 } // namespace
@@ -100,12 +124,12 @@ juce::String describeAudioDevices()
 {
     juce::String text;
 
-    for (const auto& device : rifftrack::listAudioDevices())
+    for (const auto& device : roughtrack::listAudioDevices())
     {
         text << device.name << " [" << device.typeName << "]\n"
              << "  " << device.inputChannels << " in, " << device.outputChannels << " out\n"
              << "  " << device.currentSampleRate << " Hz, " << device.currentBufferSize << " samples ("
-             << juce::String (rifftrack::bufferLatencyMs (device.currentBufferSize, device.currentSampleRate), 2)
+             << juce::String (roughtrack::bufferLatencyMs (device.currentBufferSize, device.currentSampleRate), 2)
              << " ms per buffer)\n\n";
     }
 
@@ -114,20 +138,20 @@ juce::String describeAudioDevices()
 
 juce::String describeMicrophoneAccess()
 {
-    switch (rifftrack::getMicrophoneAccess())
+    switch (roughtrack::getMicrophoneAccess())
     {
-        case rifftrack::MicrophoneAccess::granted:       return "Microphone access: granted\n";
-        case rifftrack::MicrophoneAccess::denied:        return "Microphone access: denied\n";
-        case rifftrack::MicrophoneAccess::restricted:    return "Microphone access: restricted\n";
-        case rifftrack::MicrophoneAccess::notDetermined: return "Microphone access: not yet requested\n";
+        case roughtrack::MicrophoneAccess::granted:       return "Microphone access: granted\n";
+        case roughtrack::MicrophoneAccess::denied:        return "Microphone access: denied\n";
+        case roughtrack::MicrophoneAccess::restricted:    return "Microphone access: restricted\n";
+        case roughtrack::MicrophoneAccess::notDetermined: return "Microphone access: not yet requested\n";
     }
 
     return {};
 }
 
 MainComponent::MainComponent (const juce::File& sessionToOpen)
-    : settings (std::make_unique<juce::PropertiesFile> (settingsOptions())),
-      pluginLibrary (std::make_unique<rifftrack::PluginLibrary> (settings->getFile().getSiblingFile ("RiffTrack.plugins.xml"))),
+    : settings (openSettings()),
+      pluginLibrary (std::make_unique<roughtrack::PluginLibrary> (settings->getFile().getSiblingFile ("RoughTrack.plugins.xml"))),
       timeline (std::make_unique<TimelineView> (engine, stripHeight)),
       sessionWasGiven (sessionToOpen != juce::File())
 {
@@ -137,12 +161,12 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     engine.setDrumFolder (drumsFolder());
     timeline->setSessionDirectory (currentSession);
 
-    timeline->onDrumEdit = [this] (int track, const rifftrack::DrumPartList& parts, const juce::String& name) { applyDrumEdit (track, parts, name); };
-    timeline->onEdit = [this] (int track, const rifftrack::ClipList& clips, const juce::String& name) { applyClipEdit (track, clips, name); };
+    timeline->onDrumEdit = [this] (int track, const roughtrack::DrumPartList& parts, const juce::String& name) { applyDrumEdit (track, parts, name); };
+    timeline->onEdit = [this] (int track, const roughtrack::ClipList& clips, const juce::String& name) { applyClipEdit (track, clips, name); };
     timeline->onMessage = [this] (const juce::String& message) { showPluginMessage (message); };
     timeline->onSeek = [this] (juce::int64 position)
     {
-        if (engine.getState() == rifftrack::TransportState::stopped)
+        if (engine.getState() == roughtrack::TransportState::stopped)
             engine.setPosition (position);
         else
             showPluginMessage ("Stop the transport to move the playhead.");
@@ -166,10 +190,10 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
     recordButton.onClick = [this]
     {
-        if (engine.getState() == rifftrack::TransportState::recording)
+        if (engine.getState() == roughtrack::TransportState::recording)
             return;
 
-        for (int track = 0; track < rifftrack::maxTracks; ++track)
+        for (int track = 0; track < roughtrack::maxTracks; ++track)
             clipsBeforeRecording[(size_t) track] = engine.getClips (track);
 
         const auto result = engine.record();
@@ -245,7 +269,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
    #if JUCE_MAC
     juce::PopupMenu appleMenu;
-    appleMenu.addItem (aboutMenuId, "About RiffTrack");
+    appleMenu.addItem (aboutMenuId, "About RoughTrack");
     juce::MenuBarModel::setMacMainMenu (this, &appleMenu);
    #endif
 
@@ -261,7 +285,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
     statusLabel.setText ("Waiting for microphone access", juce::dontSendNotification);
 
-    rifftrack::requestMicrophoneAccess ([safeThis = juce::Component::SafePointer (this)] (bool granted)
+    roughtrack::requestMicrophoneAccess ([safeThis = juce::Component::SafePointer (this)] (bool granted)
                                         {
                                             juce::MessageManager::callAsync ([safeThis, granted]
                                                                              {
@@ -271,7 +295,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
                                                                                  if (granted)
                                                                                      safeThis->startAudio();
                                                                                  else
-                                                                                     safeThis->statusLabel.setText ("Microphone access was denied. Allow RiffTrack in System Settings > Privacy & Security > Microphone.",
+                                                                                     safeThis->statusLabel.setText ("Microphone access was denied. Allow RoughTrack in System Settings > Privacy & Security > Microphone.",
                                                                                                                     juce::dontSendNotification);
                                                                              });
                                         });
@@ -383,10 +407,10 @@ void MainComponent::openEffectsWindow()
     if (effectsWindow == nullptr)
     {
         auto* panel = new ParameterPanel (
-            (int) rifftrack::AuxParameter::count,
-            [] (int i) -> const rifftrack::ParameterInfo& { return rifftrack::getParameterInfo ((rifftrack::AuxParameter) i); },
-            [this] (int i) { return engine.getAux().getParameter ((rifftrack::AuxParameter) i); },
-            [this] (int i, float value) { engine.getAux().setParameter ((rifftrack::AuxParameter) i, value); });
+            (int) roughtrack::AuxParameter::count,
+            [] (int i) -> const roughtrack::ParameterInfo& { return roughtrack::getParameterInfo ((roughtrack::AuxParameter) i); },
+            [this] (int i) { return engine.getAux().getParameter ((roughtrack::AuxParameter) i); },
+            [this] (int i, float value) { engine.getAux().setParameter ((roughtrack::AuxParameter) i, value); });
 
         panel->setSize (effectsWidth, panel->getIdealHeight());
         effectsWindow = std::make_unique<PanelWindow> ("Effects", panel);
@@ -426,7 +450,7 @@ void MainComponent::loadCurrentSession()
 
     if (xml != nullptr)
     {
-        const auto result = rifftrack::applySessionXml (engine, *xml, currentSession);
+        const auto result = roughtrack::applySessionXml (engine, *xml, currentSession);
 
         if (result.failed())
             showPluginMessage (result.getErrorMessage());
@@ -446,7 +470,7 @@ void MainComponent::loadCurrentSession()
     refreshChannels();
 
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
-        window->setName ("RiffTrack - " + currentSession.getFileName());
+        window->setName ("RoughTrack - " + currentSession.getFileName());
 
     timeline->setSessionDirectory (currentSession);
     clipsChanged();
@@ -457,10 +481,10 @@ void MainComponent::loadCurrentSession()
 // microphone access denied, would write an empty session over the real one.
 void MainComponent::saveSession()
 {
-    if (! sessionLoaded || engine.getState() != rifftrack::TransportState::stopped)
+    if (! sessionLoaded || engine.getState() != roughtrack::TransportState::stopped)
         return;
 
-    const auto text = rifftrack::createSessionXml (engine, currentSession)->toString();
+    const auto text = roughtrack::createSessionXml (engine, currentSession)->toString();
 
     if (text == lastSavedSession)
         return;
@@ -550,7 +574,7 @@ namespace
 class MixdownThread final : public juce::ThreadWithProgressWindow
 {
 public:
-    using Result = rifftrack::AudioEngine::BounceResult;
+    using Result = roughtrack::AudioEngine::BounceResult;
     using Job = std::function<Result (const std::function<bool (double)>&)>;
     using Finished = std::function<void (const Result&)>;
 
@@ -584,7 +608,7 @@ private:
 
 void MainComponent::askWhereToMixDown()
 {
-    if (engine.getState() != rifftrack::TransportState::stopped)
+    if (engine.getState() != roughtrack::TransportState::stopped)
     {
         showPluginMessage ("Stop the transport to mix down.");
         return;
@@ -616,7 +640,7 @@ void MainComponent::askWhereToMixDown()
 
 void MainComponent::mixDown (const juce::File& file)
 {
-    if (engine.getState() != rifftrack::TransportState::stopped)
+    if (engine.getState() != roughtrack::TransportState::stopped)
         return;
 
     const auto end = engine.getSessionLength();
@@ -633,7 +657,7 @@ void MainComponent::mixDown (const juce::File& file)
 
 void MainComponent::exportStems()
 {
-    if (engine.getState() != rifftrack::TransportState::stopped)
+    if (engine.getState() != roughtrack::TransportState::stopped)
     {
         showPluginMessage ("Stop the transport to export stems.");
         return;
@@ -658,7 +682,7 @@ void MainComponent::exportStems()
     thread->launchThread();
 }
 
-void MainComponent::mixdownFinished (const juce::File& file, const rifftrack::AudioEngine::BounceResult& result, bool isStems)
+void MainComponent::mixdownFinished (const juce::File& file, const roughtrack::AudioEngine::BounceResult& result, bool isStems)
 {
     if (result.result.failed())
     {
@@ -715,29 +739,29 @@ void MainComponent::askForNewSession()
                              true);
 }
 
-void MainComponent::applyClipEdit (int track, const rifftrack::ClipList& clips, const juce::String& editName)
+void MainComponent::applyClipEdit (int track, const roughtrack::ClipList& clips, const juce::String& editName)
 {
-    if (engine.getState() != rifftrack::TransportState::stopped)
+    if (engine.getState() != roughtrack::TransportState::stopped)
     {
         showPluginMessage ("Stop the transport to edit.");
         return;
     }
 
     undoManager.beginNewTransaction (editName);
-    undoManager.perform (new rifftrack::ClipEdit (engine, track, engine.getClips (track), clips));
+    undoManager.perform (new roughtrack::ClipEdit (engine, track, engine.getClips (track), clips));
     clipsChanged();
 }
 
-void MainComponent::applyDrumEdit (int track, const rifftrack::DrumPartList& parts, const juce::String& editName)
+void MainComponent::applyDrumEdit (int track, const roughtrack::DrumPartList& parts, const juce::String& editName)
 {
-    if (engine.getState() != rifftrack::TransportState::stopped)
+    if (engine.getState() != roughtrack::TransportState::stopped)
     {
         showPluginMessage ("Stop the transport to edit.");
         return;
     }
 
     undoManager.beginNewTransaction (editName);
-    undoManager.perform (new rifftrack::DrumEdit (engine, track, engine.getDrumParts (track), parts));
+    undoManager.perform (new roughtrack::DrumEdit (engine, track, engine.getDrumParts (track), parts));
     clipsChanged();
 }
 
@@ -746,9 +770,9 @@ void MainComponent::recordingFinished()
     recordingInProgress = false;
     undoManager.beginNewTransaction ("Record");
 
-    for (int track = 0; track < rifftrack::maxTracks; ++track)
+    for (int track = 0; track < roughtrack::maxTracks; ++track)
         if (engine.getClips (track) != clipsBeforeRecording[(size_t) track])
-            undoManager.perform (new rifftrack::ClipEdit (engine, track, clipsBeforeRecording[(size_t) track], engine.getClips (track)));
+            undoManager.perform (new roughtrack::ClipEdit (engine, track, clipsBeforeRecording[(size_t) track], engine.getClips (track)));
 
     clipsChanged();
 
@@ -770,7 +794,7 @@ void MainComponent::clipsChanged()
 
 void MainComponent::undoOrRedo (bool redo)
 {
-    if (engine.getState() != rifftrack::TransportState::stopped)
+    if (engine.getState() != roughtrack::TransportState::stopped)
     {
         showPluginMessage ("Stop the transport to undo.");
         return;
@@ -814,7 +838,7 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
 
     if (key == juce::KeyPress (juce::KeyPress::spaceKey))
     {
-        if (engine.getState() == rifftrack::TransportState::stopped)
+        if (engine.getState() == roughtrack::TransportState::stopped)
             engine.play();
         else
             engine.stop();
@@ -837,12 +861,12 @@ void MainComponent::startPluginScan()
 {
     const auto executable = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getFullPathName();
 
-    const auto command = [executable] (const rifftrack::PluginScanTarget& target, const juce::File& resultFile)
+    const auto command = [executable] (const roughtrack::PluginScanTarget& target, const juce::File& resultFile)
     {
         return juce::StringArray { executable, scanChildArgument, target.format, target.identifier, resultFile.getFullPathName() };
     };
 
-    const auto workDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("RiffTrackScan");
+    const auto workDirectory = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("RoughTrackScan");
 
     const auto safeThis = juce::Component::SafePointer (this);
 
@@ -853,7 +877,7 @@ void MainComponent::startPluginScan()
                                   if (safeThis != nullptr)
                                       safeThis->showPluginMessage (message);
                               },
-                              [safeThis] (const rifftrack::PluginScanResult& result)
+                              [safeThis] (const roughtrack::PluginScanResult& result)
                               {
                                   if (safeThis == nullptr)
                                       return;
@@ -887,7 +911,7 @@ void MainComponent::showPluginMessage (const juce::String& message, bool isWarni
 
 bool MainComponent::canChangeInserts()
 {
-    if (engine.getState() == rifftrack::TransportState::stopped)
+    if (engine.getState() == roughtrack::TransportState::stopped)
         return true;
 
     showPluginMessage ("Stop the transport to change plugins.");
@@ -904,7 +928,7 @@ void MainComponent::insertClicked (int track, int slot, bool wantsMenu, juce::Co
 
 void MainComponent::showInsertMenu (int track, int slot, juce::Component& button)
 {
-    const auto isInstrument = slot == rifftrack::instrumentSlot;
+    const auto isInstrument = slot == roughtrack::instrumentSlot;
     const auto& plugins = isInstrument ? pluginLibrary->getInstruments() : pluginLibrary->getPlugins();
     const auto loaded = engine.getInsert (track, slot) != nullptr;
 
@@ -948,10 +972,10 @@ void MainComponent::showInsertMenu (int track, int slot, juce::Component& button
                             }
                             else
                             {
-                                rifftrack::SavedInsert insert;
+                                roughtrack::SavedInsert insert;
                                 insert.track = track;
                                 insert.slot = slot;
-                                insert.description = (slot == rifftrack::instrumentSlot ? safeThis->pluginLibrary->getInstruments()
+                                insert.description = (slot == roughtrack::instrumentSlot ? safeThis->pluginLibrary->getInstruments()
                                                                                          : safeThis->pluginLibrary->getPlugins())[(size_t) (result - firstPluginMenuId)];
 
                                 if (safeThis->canChangeInserts())
@@ -960,7 +984,7 @@ void MainComponent::showInsertMenu (int track, int slot, juce::Component& button
                         });
 }
 
-void MainComponent::loadInsert (int track, int slot, const rifftrack::SavedInsert& insert)
+void MainComponent::loadInsert (int track, int slot, const roughtrack::SavedInsert& insert)
 {
     showPluginMessage ("Loading " + insert.description.name + "...");
 
@@ -1059,7 +1083,7 @@ void MainComponent::restoreInserts()
     if (xml == nullptr)
         return;
 
-    const auto inserts = rifftrack::parseSavedInserts (*xml);
+    const auto inserts = roughtrack::parseSavedInserts (*xml);
     numInsertsRestoring = (int) inserts.size();
 
     // A track holding only a plugin wasn't saved as in use by older sessions.
@@ -1067,8 +1091,8 @@ void MainComponent::restoreInserts()
     {
         if (! engine.isTrackActive (insert.track))
         {
-            const auto isLegacyTrack = insert.track < (int) rifftrack::legacyTrackNames.size();
-            engine.activateTrack (insert.track, isLegacyTrack ? rifftrack::legacyTrackNames[(size_t) insert.track] : "Audio");
+            const auto isLegacyTrack = insert.track < (int) roughtrack::legacyTrackNames.size();
+            engine.activateTrack (insert.track, isLegacyTrack ? roughtrack::legacyTrackNames[(size_t) insert.track] : "Audio");
             createStrip (insert.track);
             layoutTracks();
         }
@@ -1104,7 +1128,7 @@ void MainComponent::useInterfaceInputs()
 
     auto setup = deviceManager.getAudioDeviceSetup();
 
-    const juce::String preferred (rifftrack::preferredInputDevice (setup.outputDeviceName.toStdString(),
+    const juce::String preferred (roughtrack::preferredInputDevice (setup.outputDeviceName.toStdString(),
                                                                    setup.inputDeviceName.toStdString(),
                                                                    inputs));
 
@@ -1193,15 +1217,15 @@ void MainComponent::restoreChosenAudioDevice()
     const auto chosenXml = settings->getXmlValue ("audioDevice");
 
     if (audioSettingsWindow != nullptr || calibrating || type == nullptr || chosenXml == nullptr
-        || engine.getState() != rifftrack::TransportState::stopped)
+        || engine.getState() != roughtrack::TransportState::stopped)
         return;
 
-    const rifftrack::AudioDeviceChoice chosen { chosenXml->getStringAttribute ("audioOutputDeviceName").toStdString(),
+    const roughtrack::AudioDeviceChoice chosen { chosenXml->getStringAttribute ("audioOutputDeviceName").toStdString(),
                                                 chosenXml->getDoubleAttribute ("audioDeviceRate"),
                                                 chosenXml->getIntAttribute ("audioDeviceBufferSize") };
 
     const auto setup = deviceManager.getAudioDeviceSetup();
-    const rifftrack::AudioDeviceChoice current { setup.outputDeviceName.toStdString(),
+    const roughtrack::AudioDeviceChoice current { setup.outputDeviceName.toStdString(),
                                                  device != nullptr ? device->getCurrentSampleRate() : 0.0,
                                                  device != nullptr ? device->getCurrentBufferSizeSamples() : 0 };
 
@@ -1210,7 +1234,7 @@ void MainComponent::restoreChosenAudioDevice()
     for (const auto& name : type->getDeviceNames (false))
         outputs.push_back (name.toStdString());
 
-    if (! rifftrack::shouldRestoreAudioDevice (chosen, current, outputs))
+    if (! roughtrack::shouldRestoreAudioDevice (chosen, current, outputs))
     {
         lastAudioRestoreFrom = {};
         return;
@@ -1243,7 +1267,7 @@ void MainComponent::confirmCalibration()
     const auto options = juce::MessageBoxOptions().withIconType (juce::MessageBoxIconType::InfoIcon)
                                                   .withTitle ("Calibrate Latency")
                                                   .withMessage ("Connect Output 1 to Input 1 with a cable and turn your monitors and headphones down. "
-                                                                "RiffTrack will play three short test sweeps.")
+                                                                "RoughTrack will play three short test sweeps.")
                                                   .withButton ("Start")
                                                   .withButton ("Cancel")
                                                   .withAssociatedComponent (this);
@@ -1272,7 +1296,7 @@ void MainComponent::finishCalibration()
 
     const auto sampleRate = engine.getSampleRate();
     const auto message = result.succeeded
-                             ? "Round-trip latency: " + juce::String (rifftrack::bufferLatencyMs (result.latencySamples, sampleRate), 2)
+                             ? "Round-trip latency: " + juce::String (roughtrack::bufferLatencyMs (result.latencySamples, sampleRate), 2)
                                    + " ms (" + result.message + ")"
                              : result.message;
 
@@ -1286,7 +1310,7 @@ void MainComponent::finishCalibration()
 
 void MainComponent::timerCallback()
 {
-    if (recordingInProgress && engine.getState() == rifftrack::TransportState::stopped)
+    if (recordingInProgress && engine.getState() == roughtrack::TransportState::stopped)
         recordingFinished();
 
     timeline->updatePlayhead();
@@ -1320,7 +1344,7 @@ void MainComponent::updateTuner()
 
     for (const auto candidate : engine.getTrackOrder())
     {
-        if (engine.getTrackType (candidate) != rifftrack::TrackType::audio)
+        if (engine.getTrackType (candidate) != roughtrack::TrackType::audio)
             continue;
 
         if (track < 0 || engine.isTrackArmed (candidate))
@@ -1370,15 +1394,15 @@ void MainComponent::updateStatus()
     const auto beats = (juce::int64) std::floor (seconds * engine.getTempo() / 60.0);
     const auto wholeMinutes = (int) (seconds / 60.0);
 
-    positionLabel.setText (juce::String (beats / rifftrack::beatsPerBar + 1).paddedLeft (' ', 3) + "." + juce::String (beats % rifftrack::beatsPerBar + 1) + "  "
+    positionLabel.setText (juce::String (beats / roughtrack::beatsPerBar + 1).paddedLeft (' ', 3) + "." + juce::String (beats % roughtrack::beatsPerBar + 1) + "  "
                                + juce::String (wholeMinutes) + ":" + juce::String (seconds - wholeMinutes * 60.0, 2).paddedLeft ('0', 5),
                            juce::dontSendNotification);
 
     const auto state = engine.getState();
     const auto idleColour = getLookAndFeel().findColour (juce::TextButton::buttonColourId);
 
-    recordButton.setColour (juce::TextButton::buttonColourId, state == rifftrack::TransportState::recording ? console::red : idleColour);
-    playButton.setColour (juce::TextButton::buttonColourId, state == rifftrack::TransportState::playing ? console::green.darker (0.3f) : idleColour);
+    recordButton.setColour (juce::TextButton::buttonColourId, state == roughtrack::TransportState::recording ? console::red : idleColour);
+    playButton.setColour (juce::TextButton::buttonColourId, state == roughtrack::TransportState::playing ? console::green.darker (0.3f) : idleColour);
 
     if (juce::Time::getMillisecondCounter() < showMessageUntil)
     {
@@ -1397,7 +1421,7 @@ void MainComponent::updateStatus()
     }
 
     const auto stats = engine.getStats();
-    const auto latency = rifftrack::bufferLatencyMs (engine.getRecordingLatency(), sampleRate);
+    const auto latency = roughtrack::bufferLatencyMs (engine.getRecordingLatency(), sampleRate);
 
     juce::String status;
     status << deviceDescription() << "  |  " << sampleRate << " Hz, " << device->getCurrentBufferSizeSamples() << " samples  |  "
@@ -1713,10 +1737,10 @@ void MainComponent::showAddTrackMenu (juce::Point<int> screenPosition)
 
 void MainComponent::addTrack (const juce::String& baseName)
 {
-    const auto type = baseName == "Drums" ? rifftrack::TrackType::drums
-                                          : (baseName == "MIDI" ? rifftrack::TrackType::midi : rifftrack::TrackType::audio);
+    const auto type = baseName == "Drums" ? roughtrack::TrackType::drums
+                                          : (baseName == "MIDI" ? roughtrack::TrackType::midi : roughtrack::TrackType::audio);
 
-    if (type == rifftrack::TrackType::drums)
+    if (type == roughtrack::TrackType::drums)
     {
         const auto drums = engine.loadDrums();
 
@@ -1731,8 +1755,8 @@ void MainComponent::addTrack (const juce::String& baseName)
 
     if (track < 0)
     {
-        showPluginMessage (engine.getState() == rifftrack::TransportState::stopped
-                               ? "RiffTrack can have up to " + juce::String (rifftrack::maxTracks) + " tracks."
+        showPluginMessage (engine.getState() == roughtrack::TransportState::stopped
+                               ? "RoughTrack can have up to " + juce::String (roughtrack::maxTracks) + " tracks."
                                : "Stop the transport to add a track.");
         return;
     }
@@ -1741,7 +1765,7 @@ void MainComponent::addTrack (const juce::String& baseName)
     layoutTracks();
     saveSession();
 
-    if (type == rifftrack::TrackType::midi)
+    if (type == roughtrack::TrackType::midi)
         loadDefaultInstrument (track);
 }
 
@@ -1751,11 +1775,11 @@ void MainComponent::loadDefaultInstrument (int track)
     {
         if (instrument.name == defaultInstrumentName)
         {
-            rifftrack::SavedInsert insert;
+            roughtrack::SavedInsert insert;
             insert.track = track;
-            insert.slot = rifftrack::instrumentSlot;
+            insert.slot = roughtrack::instrumentSlot;
             insert.description = instrument;
-            loadInsert (track, rifftrack::instrumentSlot, insert);
+            loadInsert (track, roughtrack::instrumentSlot, insert);
             return;
         }
     }

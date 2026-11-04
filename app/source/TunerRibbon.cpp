@@ -20,11 +20,11 @@ constexpr int sourceWidth = 190;
 
 } // namespace
 
-TunerRibbon::TunerRibbon (rifftrack::AudioEngine& engineToRead) : engine (engineToRead) {}
+TunerRibbon::TunerRibbon (roughtrack::AudioEngine& engineToRead) : engine (engineToRead) {}
 
 void TunerRibbon::start (double sampleRate)
 {
-    detector = std::make_unique<rifftrack::PitchDetector> (sampleRate);
+    detector = std::make_unique<roughtrack::PitchDetector> (sampleRate);
     history.assign ((size_t) detector->getWindowSize(), 0.0f);
     arriving.resize (history.size());
     samplesSinceAnalysis = 0;
@@ -90,7 +90,7 @@ void TunerRibbon::listen()
 }
 
 // A plucked string starts sharp and wobbles, so a few readings are taken together.
-void TunerRibbon::show (const rifftrack::TunerReading& reading)
+void TunerRibbon::show (const roughtrack::TunerReading& reading)
 {
     if (reading.note != shownNote)
         recentCents.clear();
@@ -109,7 +109,7 @@ void TunerRibbon::show (const rifftrack::TunerReading& reading)
 
 juce::String TunerRibbon::getDisplayedNote() const
 {
-    return shownNote >= 0 ? rifftrack::getTunerNoteName (shownNote) : juce::String();
+    return shownNote >= 0 ? roughtrack::getTunerNoteName (shownNote) : juce::String();
 }
 
 void TunerRibbon::paintBand (juce::Graphics& g, juce::Rectangle<float> area, float barWidth, float offset, juce::Colour colour) const

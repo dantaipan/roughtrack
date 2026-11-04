@@ -1,9 +1,9 @@
-#include "rifftrack/Metronome.h"
+#include "roughtrack/Metronome.h"
 
 #include <cmath>
 #include <numbers>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -42,4 +42,4 @@ void addClick (float* left,
     }
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

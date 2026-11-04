@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rifftrack/AudioEngine.h"
+#include "roughtrack/AudioEngine.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -17,13 +17,13 @@ public:
     static constexpr int scrollBarHeight = 14;
 
     /** One style's grooves or fills, with those suited to the tempo first. */
-    static juce::PopupMenu createGrooveMenu (const std::vector<rifftrack::Groove>&, const juce::String& style, bool fills, double beatsPerMinute);
+    static juce::PopupMenu createGrooveMenu (const std::vector<roughtrack::Groove>&, const juce::String& style, bool fills, double beatsPerMinute);
 
-    TimelineView (rifftrack::AudioEngine&, int laneHeight);
+    TimelineView (roughtrack::AudioEngine&, int laneHeight);
     ~TimelineView() override;
 
-    std::function<void (int track, const rifftrack::ClipList&, const juce::String& editName)> onEdit;
-    std::function<void (int track, const rifftrack::DrumPartList&, const juce::String& editName)> onDrumEdit;
+    std::function<void (int track, const roughtrack::ClipList&, const juce::String& editName)> onEdit;
+    std::function<void (int track, const roughtrack::DrumPartList&, const juce::String& editName)> onDrumEdit;
     std::function<void (juce::int64 position)> onSeek;
     std::function<void (const juce::String&)> onMessage;
     std::function<void (float pixels)> onScrollLanes;
@@ -75,8 +75,8 @@ private:
     int trackAt (int y) const;
     int lanesHeight() const;
     juce::Rectangle<int> laneBounds (int track) const;
-    juce::Rectangle<float> clipBounds (int track, const rifftrack::Clip&) const;
-    const rifftrack::ClipList& clipsToShow (int track) const;
+    juce::Rectangle<float> clipBounds (int track, const roughtrack::Clip&) const;
+    const roughtrack::ClipList& clipsToShow (int track) const;
     Hit hitTestClips (juce::Point<float>) const;
     Hit hitTestParts (int track, juce::Point<float>) const;
     static Zone findZone (juce::Rectangle<float> bounds, juce::Point<float>);
@@ -92,16 +92,16 @@ private:
     float pixelsPerBar() const;
     float barToX (int bar) const;
     int xToBar (float x) const;
-    juce::Rectangle<float> partBounds (int track, const rifftrack::DrumPart&) const;
-    const rifftrack::DrumPartList& partsToShow (int track) const;
+    juce::Rectangle<float> partBounds (int track, const roughtrack::DrumPart&) const;
+    const roughtrack::DrumPartList& partsToShow (int track) const;
 
     juce::AudioThumbnail& thumbnailFor (const juce::File&);
     void paintRuler (juce::Graphics&);
-    void paintClip (juce::Graphics&, int track, const rifftrack::Clip&, bool selected);
-    void paintNotes (juce::Graphics&, const rifftrack::Clip&, juce::Rectangle<float> bounds);
-    void paintPart (juce::Graphics&, int track, const rifftrack::DrumPart&, bool selected);
+    void paintClip (juce::Graphics&, int track, const roughtrack::Clip&, bool selected);
+    void paintNotes (juce::Graphics&, const roughtrack::Clip&, juce::Rectangle<float> bounds);
+    void paintPart (juce::Graphics&, int track, const roughtrack::DrumPart&, bool selected);
     void paintBarLines (juce::Graphics&, juce::Rectangle<int> lane);
-    void paintHits (juce::Graphics&, const rifftrack::DrumPart&, const rifftrack::Groove&, juce::Rectangle<float> bounds);
+    void paintHits (juce::Graphics&, const roughtrack::DrumPart&, const roughtrack::Groove&, juce::Rectangle<float> bounds);
     void showMenu (const Hit&, juce::Point<float>);
     void showDrumMenu (const Hit&, juce::Point<float>);
     juce::Array<juce::File> findTakes (int track) const;
@@ -110,7 +110,7 @@ private:
     void setZoom (double newPixelsPerSecond, float aroundX);
     bool canEdit();
 
-    rifftrack::AudioEngine& engine;
+    roughtrack::AudioEngine& engine;
     const int laneHeight;
 
     juce::File sessionDirectory;
@@ -128,7 +128,7 @@ private:
 
     Hit selected;
     Hit dragging;
-    rifftrack::ClipList dragOriginal, dragPreview;
-    rifftrack::DrumPartList partsOriginal, partsPreview;
+    roughtrack::ClipList dragOriginal, dragPreview;
+    roughtrack::DrumPartList partsOriginal, partsPreview;
     bool isDragging = false;
 };

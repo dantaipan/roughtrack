@@ -5,7 +5,7 @@
 #include <memory>
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** MIDI is timed in ticks rather than samples, so it follows the tempo. */
@@ -54,4 +54,4 @@ bool writeMidiTake (const MidiTake&, const juce::File&);
 */
 juce::int64 sampleToTick (juce::int64 sample, double samplesPerTick) noexcept;
 
-} // namespace rifftrack
+} // namespace roughtrack

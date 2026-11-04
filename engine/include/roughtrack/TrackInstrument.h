@@ -4,7 +4,7 @@
 
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** The plugin that turns a MIDI track's notes into sound.
@@ -39,4 +39,4 @@ private:
     int preparedBlockSize = 0;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

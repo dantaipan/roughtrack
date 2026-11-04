@@ -11,7 +11,7 @@
 #include <cmath>
 #include <numbers>
 
-using namespace rifftrack;
+using namespace roughtrack;
 using Catch::Approx;
 
 namespace

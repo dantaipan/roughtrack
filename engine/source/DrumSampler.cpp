@@ -1,8 +1,8 @@
-#include "rifftrack/DrumSampler.h"
+#include "roughtrack/DrumSampler.h"
 
 #include <cmath>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -191,4 +191,4 @@ void DrumSampler::mixVoice (Voice& voice, float* left, float* right, int numSamp
         voice.audio = nullptr;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

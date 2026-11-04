@@ -4,7 +4,7 @@
 
 #include <memory>
 
-namespace rifftrack::test
+namespace roughtrack::test
 {
 
 /** A temp directory removed at the end of the test. */
@@ -118,4 +118,4 @@ inline int findPeak (const juce::AudioBuffer<float>& buffer, int channel = 0)
     return best;
 }
 
-} // namespace rifftrack::test
+} // namespace roughtrack::test

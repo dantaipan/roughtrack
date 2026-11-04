@@ -1,11 +1,11 @@
 #include "TestHelpers.h"
 
-#include "rifftrack/PluginLibrary.h"
-#include "rifftrack/PluginScanner.h"
+#include "roughtrack/PluginLibrary.h"
+#include "roughtrack/PluginScanner.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using namespace rifftrack;
+using namespace roughtrack;
 
 namespace
 {
@@ -119,7 +119,7 @@ TEST_CASE ("A scanner that can't start is reported")
 
     const PluginScanCommand missing = [] (const PluginScanTarget&, const juce::File&)
     {
-        return juce::StringArray { "/nonexistent/rifftrack-scanner" };
+        return juce::StringArray { "/nonexistent/roughtrack-scanner" };
     };
 
     const auto result = scanPlugins ({ { "VST3", "any" } }, missing, temp.directory, quickTimeoutMs);

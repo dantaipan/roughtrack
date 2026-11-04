@@ -1,4 +1,4 @@
-#include "rifftrack/LatencyCalibrator.h"
+#include "roughtrack/LatencyCalibrator.h"
 
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/generators/catch_generators.hpp>
@@ -6,7 +6,7 @@
 #include <deque>
 #include <random>
 
-using rifftrack::LatencyCalibrator;
+using roughtrack::LatencyCalibrator;
 
 namespace
 {

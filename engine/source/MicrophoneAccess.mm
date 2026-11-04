@@ -1,8 +1,8 @@
-#include "rifftrack/MicrophoneAccess.h"
+#include "roughtrack/MicrophoneAccess.h"
 
 #import <AVFoundation/AVFoundation.h>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 // juce::RuntimePermissions has no macOS implementation, so it would report
@@ -29,4 +29,4 @@ void requestMicrophoneAccess (std::function<void (bool granted)> callback)
                              }];
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

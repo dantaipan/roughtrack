@@ -1,6 +1,6 @@
-#include "rifftrack/TakeWriter.h"
+#include "roughtrack/TakeWriter.h"
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -56,4 +56,4 @@ bool TakeWriter::write (const float* const* channels, int numSamples) noexcept
     return false;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

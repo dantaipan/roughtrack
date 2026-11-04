@@ -5,7 +5,7 @@
 #include <functional>
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** One plugin file or Audio Unit waiting to be scanned. */
@@ -56,4 +56,4 @@ std::vector<juce::PluginDescription> readPluginList (const juce::File&);
 */
 bool writePluginScanResult (juce::AudioPluginFormatManager&, const PluginScanTarget&, const juce::File& resultFile);
 
-} // namespace rifftrack
+} // namespace roughtrack

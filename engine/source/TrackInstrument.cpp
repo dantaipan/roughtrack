@@ -1,6 +1,6 @@
-#include "rifftrack/TrackInstrument.h"
+#include "roughtrack/TrackInstrument.h"
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -81,4 +81,4 @@ void TrackInstrument::processChunk (float* left, float* right, int numSamples, j
     juce::FloatVectorOperations::copy (right, view.getReadPointer (numOutputs == 1 ? 0 : 1), numSamples);
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

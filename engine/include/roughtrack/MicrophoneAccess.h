@@ -2,7 +2,7 @@
 
 #include <functional>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 enum class MicrophoneAccess
@@ -21,4 +21,4 @@ MicrophoneAccess getMicrophoneAccess();
 */
 void requestMicrophoneAccess (std::function<void (bool granted)> callback);
 
-} // namespace rifftrack
+} // namespace roughtrack

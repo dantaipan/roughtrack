@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cuts RiffTrack's grooves.xml from the Groove MIDI Dataset.
+"""Cuts RoughTrack's grooves.xml from the Groove MIDI Dataset.
 
     python3 tools/build_grooves.py <groove folder holding info.csv> <grooves.xml>
 

@@ -1,10 +1,10 @@
 // Headless checks that need a real process or real hardware.
 //
-//   rifftrack_bench crash-writer <file>
+//   roughtrack_bench crash-writer <file>
 //       Records a sine wave in real time until killed. The crash recovery test
 //       kills this process mid-take and inspects what it left behind.
 //
-//   rifftrack_bench soak <seconds> [--device <name>] [--buffer <samples>] [--record] [--stall-ms <ms>] [--amp <file>] [--amps <count>] [--cabinet <file>] [--full-channel]
+//   roughtrack_bench soak <seconds> [--device <name>] [--buffer <samples>] [--record] [--stall-ms <ms>] [--amp <file>] [--amps <count>] [--cabinet <file>] [--full-channel]
 //       Plays 7 tracks through a real device, muted, and reports dropouts.
 //       --record also records the first two inputs at the same time.
 //       --stall-ms blocks the audio thread once, halfway through, to prove the
@@ -13,31 +13,31 @@
 //       and --cabinet loads an IR on the same tracks. --full-channel turns on
 //       every track's EQ, compressor and sends.
 //
-//   rifftrack_bench overdub-check [--device <name>] [--buffer <samples>] [--input <number>]
+//   roughtrack_bench overdub-check [--device <name>] [--buffer <samples>] [--input <number>]
 //       Needs a cable from output 1 to input 1, and plays test sweeps. Measures
 //       round-trip latency, then records an overdub through the cable and
 //       reports how far it landed from the part it was recorded against.
 //
-//   rifftrack_bench scan-plugins [--timeout <seconds>]
+//   roughtrack_bench scan-plugins [--timeout <seconds>]
 //       Scans every installed VST3 and Audio Unit, each in its own process.
 //
-//   rifftrack_bench scan-plugin <format> <identifier> <result file>
+//   roughtrack_bench scan-plugin <format> <identifier> <result file>
 //       The child process of scan-plugins. Loads one plugin.
 //
-//   rifftrack_bench plugin-window <format> <name> [--seconds <seconds>] [--first <format> <name>]
+//   roughtrack_bench plugin-window <format> <name> [--seconds <seconds>] [--first <format> <name>]
 //       Opens a plugin's editor the way the app does and prints its native
 //       views. --first opens another plugin in the same process before it.
 //
-//   rifftrack_bench amp-check <file> [--buffer <samples>] [--instances <count>] [--lite]
+//   roughtrack_bench amp-check <file> [--buffer <samples>] [--instances <count>] [--lite]
 //       Loads a NAM capture and times it against the buffer deadline, running
 //       the given number of copies in one block as a session would.
 //
-//   rifftrack_bench plugin-check [--buffer <samples>] [--name <text>]
+//   roughtrack_bench plugin-check [--buffer <samples>] [--name <text>]
 //       Runs every third-party effect through the engine with no audio device.
 //       Compares reported latency with a measured pulse, times each block
 //       against the buffer deadline, and reloads the plugin from saved state.
 //
-//   rifftrack_bench tuner-check <take.wav>
+//   roughtrack_bench tuner-check <take.wav>
 //       Runs the tuner over a recording as the app would, and reports each note
 //       it holds, how steady the reading is and what the analysis costs.
 
@@ -45,11 +45,11 @@
 #include "NativeViews.h"
 #include "PluginWindow.h"
 
-#include "rifftrack/AmpModel.h"
-#include "rifftrack/AudioDevices.h"
-#include "rifftrack/AudioEngine.h"
-#include "rifftrack/PluginScanner.h"
-#include "rifftrack/Tuner.h"
+#include "roughtrack/AmpModel.h"
+#include "roughtrack/AudioDevices.h"
+#include "roughtrack/AudioEngine.h"
+#include "roughtrack/PluginScanner.h"
+#include "roughtrack/Tuner.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 
@@ -76,7 +76,7 @@ int runCrashWriter (const juce::File& file)
     juce::TimeSliceThread thread ("bench writer");
     thread.startThread();
 
-    auto writer = rifftrack::TakeWriter::create (file, benchSampleRate, 1, thread);
+    auto writer = roughtrack::TakeWriter::create (file, benchSampleRate, 1, thread);
 
     if (writer == nullptr)
         return 1;
@@ -101,7 +101,7 @@ int runCrashWriter (const juce::File& file)
 
 juce::File makeWorkDirectory()
 {
-    const auto directory = juce::File::createTempFile ("").withFileExtension ("").getSiblingFile ("rifftrack-bench");
+    const auto directory = juce::File::createTempFile ("").withFileExtension ("").getSiblingFile ("roughtrack-bench");
     directory.deleteRecursively();
     directory.createDirectory();
     return directory;
@@ -142,7 +142,7 @@ bool openDevice (juce::AudioDeviceManager& manager, const juce::StringArray& arg
 class StallingCallback final : public juce::AudioIODeviceCallback
 {
 public:
-    explicit StallingCallback (rifftrack::AudioEngine& engineToWrap) : engine (engineToWrap) {}
+    explicit StallingCallback (roughtrack::AudioEngine& engineToWrap) : engine (engineToWrap) {}
 
     void requestStall (int milliseconds) { stallMs = milliseconds; }
 
@@ -163,7 +163,7 @@ public:
     void audioDeviceStopped() override { engine.audioDeviceStopped(); }
 
 private:
-    rifftrack::AudioEngine& engine;
+    roughtrack::AudioEngine& engine;
     std::atomic<int> stallMs { 0 };
 };
 
@@ -215,7 +215,7 @@ int runSoak (const juce::StringArray& args)
     if (! openDevice (manager, args, recording, bufferSize))
         return 1;
 
-    rifftrack::AudioEngine engine;
+    roughtrack::AudioEngine engine;
     engine.setSessionDirectory (directory);
     engine.setMasterGain (0.0f);
 
@@ -256,12 +256,12 @@ int runSoak (const juce::StringArray& args)
         {
             auto& channel = engine.getChannel (track);
 
-            channel.setParameter (rifftrack::ChannelParameter::eqEnabled, 1.0f);
-            channel.setParameter (rifftrack::ChannelParameter::highPass, 80.0f);
-            channel.setParameter (rifftrack::ChannelParameter::midGain, -3.0f);
-            channel.setParameter (rifftrack::ChannelParameter::compressorEnabled, 1.0f);
-            channel.setParameter (rifftrack::ChannelParameter::sendReverb, 0.3f);
-            channel.setParameter (rifftrack::ChannelParameter::sendDelay, 0.2f);
+            channel.setParameter (roughtrack::ChannelParameter::eqEnabled, 1.0f);
+            channel.setParameter (roughtrack::ChannelParameter::highPass, 80.0f);
+            channel.setParameter (roughtrack::ChannelParameter::midGain, -3.0f);
+            channel.setParameter (roughtrack::ChannelParameter::compressorEnabled, 1.0f);
+            channel.setParameter (roughtrack::ChannelParameter::sendReverb, 0.3f);
+            channel.setParameter (roughtrack::ChannelParameter::sendDelay, 0.2f);
         }
     }
 
@@ -278,7 +278,7 @@ int runSoak (const juce::StringArray& args)
         }
 
         const auto& groove = engine.getGrooves().getGrooves().front();
-        engine.setDrumParts (engine.addTrack ("Drums", rifftrack::TrackType::drums), { { groove.id, 0, 1000, 0 } });
+        engine.setDrumParts (engine.addTrack ("Drums", roughtrack::TrackType::drums), { { groove.id, 0, 1000, 0 } });
     }
 
     StallingCallback callback (engine);
@@ -362,7 +362,7 @@ int runOverdubCheck (const juce::StringArray& args)
 
     const auto directory = makeWorkDirectory();
 
-    rifftrack::AudioEngine engine;
+    roughtrack::AudioEngine engine;
     engine.setSessionDirectory (directory);
     engine.activateTrack (0, "Reference");
     engine.activateTrack (1, "Overdub");
@@ -397,7 +397,7 @@ int runOverdubCheck (const juce::StringArray& args)
     }
 
     std::cout << "Measured " << calibration.latencySamples << " samples ("
-              << rifftrack::bufferLatencyMs (calibration.latencySamples, device->getCurrentSampleRate()) << " ms)" << std::endl;
+              << roughtrack::bufferLatencyMs (calibration.latencySamples, device->getCurrentSampleRate()) << " ms)" << std::endl;
 
     juce::AudioBuffer<float> pulse (1, takeLength);
     pulse.clear();
@@ -464,9 +464,9 @@ int runScanPlugin (const juce::StringArray& args)
     const juce::ScopedJuceInitialiser_GUI juceInitialiser;
 
     juce::AudioPluginFormatManager formats;
-    rifftrack::addPluginFormats (formats);
+    roughtrack::addPluginFormats (formats);
 
-    return rifftrack::writePluginScanResult (formats, { args[2], args[3] }, juce::File (args[4])) ? 0 : 1;
+    return roughtrack::writePluginScanResult (formats, { args[2], args[3] }, juce::File (args[4])) ? 0 : 1;
 }
 
 struct PluginCheck
@@ -478,7 +478,7 @@ struct PluginCheck
     int blocksOverDeadline = 0;
 };
 
-PluginCheck measurePlugin (rifftrack::AudioEngine& engine, int bufferSize)
+PluginCheck measurePlugin (roughtrack::AudioEngine& engine, int bufferSize)
 {
     constexpr int pulseAt = 24000;
     constexpr int numPulseSamples = 96000;
@@ -551,12 +551,12 @@ int runPluginCheck (const juce::StringArray& args)
     const auto nameFilter = nameIndex > 0 ? args[nameIndex + 1] : juce::String();
 
     juce::AudioPluginFormatManager formats;
-    rifftrack::addPluginFormats (formats);
+    roughtrack::addPluginFormats (formats);
 
     const auto executable = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getFullPathName();
 
-    const auto scan = rifftrack::scanPlugins (rifftrack::findPluginScanTargets (formats),
-                                              [&] (const rifftrack::PluginScanTarget& target, const juce::File& resultFile)
+    const auto scan = roughtrack::scanPlugins (roughtrack::findPluginScanTargets (formats),
+                                              [&] (const roughtrack::PluginScanTarget& target, const juce::File& resultFile)
                                               {
                                                   return juce::StringArray { executable, "scan-plugin", target.format, target.identifier, resultFile.getFullPathName() };
                                               },
@@ -585,7 +585,7 @@ int runPluginCheck (const juce::StringArray& args)
 
         auto* raw = instance.get();
 
-        rifftrack::AudioEngine engine;
+        roughtrack::AudioEngine engine;
         engine.prepare (benchSampleRate, bufferSize);
         engine.setRecordingLatency (0);
         engine.activateTrack (0, "Bench");
@@ -671,9 +671,9 @@ int runPluginWindow (const juce::StringArray& args)
     const auto firstIndex = args.indexOf ("--first");
 
     juce::AudioPluginFormatManager formats;
-    rifftrack::addPluginFormats (formats);
+    roughtrack::addPluginFormats (formats);
 
-    rifftrack::AudioEngine engine;
+    roughtrack::AudioEngine engine;
     engine.prepare (benchSampleRate, 64);
 
     std::vector<std::unique_ptr<PluginWindow>> windows;
@@ -726,13 +726,13 @@ int runAmpCheck (const juce::StringArray& args)
     const auto numInstances = option ("--instances", 1);
     const auto lite = args.contains ("--lite");
 
-    std::vector<std::unique_ptr<rifftrack::AmpModel>> models;
+    std::vector<std::unique_ptr<roughtrack::AmpModel>> models;
 
     const auto loadStart = juce::Time::getMillisecondCounterHiRes();
 
     for (int i = 0; i < numInstances; ++i)
     {
-        auto loaded = rifftrack::AmpModel::load (juce::File (args[2]), benchSampleRate, bufferSize, lite);
+        auto loaded = roughtrack::AmpModel::load (juce::File (args[2]), benchSampleRate, bufferSize, lite);
 
         if (loaded.model == nullptr)
         {
@@ -799,18 +799,18 @@ int runScanPlugins (const juce::StringArray& args)
     const auto timeoutMs = 1000 * (timeoutIndex > 0 ? args[timeoutIndex + 1].getIntValue() : 60);
 
     juce::AudioPluginFormatManager formats;
-    rifftrack::addPluginFormats (formats);
+    roughtrack::addPluginFormats (formats);
 
-    const auto targets = rifftrack::findPluginScanTargets (formats);
+    const auto targets = roughtrack::findPluginScanTargets (formats);
     const auto executable = juce::File::getSpecialLocation (juce::File::currentExecutableFile).getFullPathName();
 
-    const auto command = [&] (const rifftrack::PluginScanTarget& target, const juce::File& resultFile)
+    const auto command = [&] (const roughtrack::PluginScanTarget& target, const juce::File& resultFile)
     {
         return juce::StringArray { executable, "scan-plugin", target.format, target.identifier, resultFile.getFullPathName() };
     };
 
     const auto startMs = juce::Time::getMillisecondCounter();
-    const auto result = rifftrack::scanPlugins (targets, command, makeWorkDirectory(), timeoutMs);
+    const auto result = roughtrack::scanPlugins (targets, command, makeWorkDirectory(), timeoutMs);
 
     for (const auto& plugin : result.plugins)
         std::cout << plugin.pluginFormatName << "  " << plugin.manufacturerName << " / " << plugin.name
@@ -837,7 +837,7 @@ int runMidiCheck (const juce::StringArray& args)
     constexpr int noteSpacingMs = 125;
     constexpr int noteLengthMs = 60;
     constexpr double tempo = 120.0;
-    constexpr auto deviceName = "RiffTrack Check";
+    constexpr auto deviceName = "RoughTrack Check";
 
     const auto bufferIndex = args.indexOf ("--buffer");
     const auto bufferSize = bufferIndex >= 0 ? args[bufferIndex + 1].getIntValue() : 64;
@@ -859,7 +859,7 @@ int runMidiCheck (const juce::StringArray& args)
         return 1;
 
     juce::AudioPluginFormatManager formats;
-    rifftrack::addPluginFormats (formats);
+    roughtrack::addPluginFormats (formats);
 
     std::unique_ptr<juce::AudioPluginInstance> synth;
     juce::String error;
@@ -886,14 +886,14 @@ int runMidiCheck (const juce::StringArray& args)
 
     const auto directory = makeWorkDirectory();
 
-    rifftrack::AudioEngine engine;
+    roughtrack::AudioEngine engine;
     engine.setSessionDirectory (directory);
     engine.setTempo (tempo);
     engine.setMasterGain (0.0f);
 
-    const auto track = engine.addTrack ("Keys", rifftrack::TrackType::midi);
+    const auto track = engine.addTrack ("Keys", roughtrack::TrackType::midi);
 
-    if (const auto result = engine.setInsert (track, rifftrack::instrumentSlot, std::move (synth), instrumentState); result.failed())
+    if (const auto result = engine.setInsert (track, roughtrack::instrumentSlot, std::move (synth), instrumentState); result.failed())
     {
         std::cout << result.getErrorMessage() << std::endl;
         return 1;
@@ -995,7 +995,7 @@ int runMidiCheck (const juce::StringArray& args)
         return 1;
     }
 
-    const auto take = rifftrack::readMidiTake (clips[0].file);
+    const auto take = roughtrack::readMidiTake (clips[0].file);
 
     if (take == nullptr)
     {
@@ -1003,7 +1003,7 @@ int runMidiCheck (const juce::StringArray& args)
         return 1;
     }
 
-    const auto msPerTick = 60000.0 / tempo / rifftrack::ticksPerBeat;
+    const auto msPerTick = 60000.0 / tempo / roughtrack::ticksPerBeat;
     auto worstMs = 0.0;
 
     for (size_t note = 0; note < take->notes.size() && note < sentMs.size(); ++note)
@@ -1047,7 +1047,7 @@ int runDrumCheck (const juce::StringArray& args)
     constexpr int blockSize = 64;
     constexpr double sampleRate = 48000.0;
 
-    rifftrack::AudioEngine engine;
+    roughtrack::AudioEngine engine;
     engine.setDrumFolder (juce::File (args[2]));
     engine.prepare (sampleRate, blockSize);
 
@@ -1061,7 +1061,7 @@ int runDrumCheck (const juce::StringArray& args)
     }
 
     const auto loadMs = juce::Time::getMillisecondCounterHiRes() - loadStartMs;
-    const auto track = engine.addTrack ("Drums", rifftrack::TrackType::drums);
+    const auto track = engine.addTrack ("Drums", roughtrack::TrackType::drums);
 
     const auto wavIndex = args.indexOf ("--wav");
     const auto grooveIndex = args.indexOf ("--groove");
@@ -1085,7 +1085,7 @@ int runDrumCheck (const juce::StringArray& args)
         engine.setPosition (0);
         engine.play();
 
-        const auto numSamples = (int) (groove.bars * rifftrack::beatsPerBar * 60.0 / groove.recordedBpm * sampleRate);
+        const auto numSamples = (int) (groove.bars * roughtrack::beatsPerBar * 60.0 / groove.recordedBpm * sampleRate);
         juce::AudioBuffer<float> audio (2, numSamples);
 
         const auto startMs = juce::Time::getMillisecondCounterHiRes();
@@ -1148,7 +1148,7 @@ int runTunerCheck (const juce::File& file)
     juce::AudioBuffer<float> audio (1, (int) reader->lengthInSamples);
     reader->read (&audio, 0, audio.getNumSamples(), 0, true, false);
 
-    rifftrack::PitchDetector detector (reader->sampleRate);
+    roughtrack::PitchDetector detector (reader->sampleRate);
 
     const auto reportRun = [] (int note, std::vector<double>& cents, double seconds)
     {
@@ -1156,7 +1156,7 @@ int runTunerCheck (const juce::File& file)
         {
             std::sort (cents.begin(), cents.end());
 
-            std::cout << juce::String (seconds, 2) << " s  " << rifftrack::getTunerNoteName (note) << "  median "
+            std::cout << juce::String (seconds, 2) << " s  " << roughtrack::getTunerNoteName (note) << "  median "
                       << juce::String (cents[cents.size() / 2], 1) << " cents, middle half spans "
                       << juce::String (cents[cents.size() * 3 / 4] - cents[cents.size() / 4], 1) << " cents, "
                       << cents.size() << " readings\n";
@@ -1245,16 +1245,16 @@ int main (int argc, char** argv)
     if (args[1] == "build-kit" && args.size() == 4)
         return runBuildDrumKit (juce::File (args[2]), juce::File (args[3]));
 
-    std::cout << "usage: rifftrack_bench crash-writer <file>\n"
-                 "       rifftrack_bench soak <seconds> [--device <name>] [--buffer <samples>] [--record] [--stall-ms <ms>] [--amp <file>] [--amps <count>] [--cabinet <file>] [--full-channel] [--drums <folder>]\n"
-                 "       rifftrack_bench overdub-check [--device <name>] [--buffer <samples>] [--input <number>]\n"
-                 "       rifftrack_bench scan-plugins [--timeout <seconds>]\n"
-                 "       rifftrack_bench scan-plugin <format> <identifier> <result file>\n"
-                 "       rifftrack_bench amp-check <file> [--buffer <samples>] [--instances <count>] [--lite]\n"
-                 "       rifftrack_bench plugin-check [--buffer <samples>] [--name <text>]\n"
-                 "       rifftrack_bench plugin-window <format> <name> [--seconds <seconds>] [--first <format> <name>]\n"
-                 "       rifftrack_bench midi-check [--device <name>] [--buffer <samples>] [--instrument <match>] [--state <inserts.xml>]\n"
-                 "       rifftrack_bench drum-check <drums folder> [--groove <id>] [--wav <file>]\n"
-                 "       rifftrack_bench build-kit <DrumGizmo kit folder> <output folder>\n";
+    std::cout << "usage: roughtrack_bench crash-writer <file>\n"
+                 "       roughtrack_bench soak <seconds> [--device <name>] [--buffer <samples>] [--record] [--stall-ms <ms>] [--amp <file>] [--amps <count>] [--cabinet <file>] [--full-channel] [--drums <folder>]\n"
+                 "       roughtrack_bench overdub-check [--device <name>] [--buffer <samples>] [--input <number>]\n"
+                 "       roughtrack_bench scan-plugins [--timeout <seconds>]\n"
+                 "       roughtrack_bench scan-plugin <format> <identifier> <result file>\n"
+                 "       roughtrack_bench amp-check <file> [--buffer <samples>] [--instances <count>] [--lite]\n"
+                 "       roughtrack_bench plugin-check [--buffer <samples>] [--name <text>]\n"
+                 "       roughtrack_bench plugin-window <format> <name> [--seconds <seconds>] [--first <format> <name>]\n"
+                 "       roughtrack_bench midi-check [--device <name>] [--buffer <samples>] [--instrument <match>] [--state <inserts.xml>]\n"
+                 "       roughtrack_bench drum-check <drums folder> [--groove <id>] [--wav <file>]\n"
+                 "       roughtrack_bench build-kit <DrumGizmo kit folder> <output folder>\n";
     return 1;
 }

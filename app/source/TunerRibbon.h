@@ -1,7 +1,7 @@
 #pragma once
 
-#include "rifftrack/AudioEngine.h"
-#include "rifftrack/Tuner.h"
+#include "roughtrack/AudioEngine.h"
+#include "roughtrack/Tuner.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -11,7 +11,7 @@
 class TunerRibbon final : public juce::Component
 {
 public:
-    explicit TunerRibbon (rifftrack::AudioEngine&);
+    explicit TunerRibbon (roughtrack::AudioEngine&);
 
     /** Says where the sound is coming from, and clears what was heard before. */
     void start (double sampleRate);
@@ -30,11 +30,11 @@ public:
 
 private:
     void listen();
-    void show (const rifftrack::TunerReading&);
+    void show (const roughtrack::TunerReading&);
     void paintBand (juce::Graphics&, juce::Rectangle<float>, float barWidth, float offset, juce::Colour) const;
 
-    rifftrack::AudioEngine& engine;
-    std::unique_ptr<rifftrack::PitchDetector> detector;
+    roughtrack::AudioEngine& engine;
+    std::unique_ptr<roughtrack::PitchDetector> detector;
 
     std::vector<float> history, arriving;
     int samplesSinceAnalysis = 0;

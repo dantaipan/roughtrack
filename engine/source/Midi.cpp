@@ -1,11 +1,11 @@
-#include "rifftrack/Midi.h"
+#include "roughtrack/Midi.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <map>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -254,4 +254,4 @@ juce::int64 sampleToTick (juce::int64 sample, double samplesPerTick) noexcept
     return (juce::int64) std::ceil (((double) sample - 0.5) / samplesPerTick);
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

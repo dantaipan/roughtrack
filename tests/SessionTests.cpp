@@ -1,11 +1,11 @@
 #include "TestHelpers.h"
 
-#include "rifftrack/Session.h"
+#include "roughtrack/Session.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using namespace rifftrack;
+using namespace roughtrack;
 
 namespace
 {
@@ -339,7 +339,7 @@ TEST_CASE ("A seven-track session opens with only the tracks it used")
     Rig rig;
     const auto file = writeRamp (rig.temp.directory, "take.wav", 1000);
 
-    juce::XmlElement xml ("RIFFTRACK_SESSION");
+    juce::XmlElement xml ("RIFFTRACK_SESSION"); // saved before the rename
 
     for (int track = 0; track < 7; ++track)
     {

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rifftrack/Tracks.h"
+#include "roughtrack/Tracks.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
@@ -8,7 +8,7 @@
 #include <atomic>
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** The plugins on one track, processed in order on the audio thread.
@@ -62,4 +62,4 @@ private:
     int preparedBlockSize = 0;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

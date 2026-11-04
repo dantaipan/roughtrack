@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Mixes a click into a stereo pair. It holds no state between blocks, so it
@@ -16,4 +16,4 @@ void addClick (float* left,
                double beatsPerMinute,
                float gain) noexcept;
 
-} // namespace rifftrack
+} // namespace roughtrack

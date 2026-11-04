@@ -10,7 +10,7 @@ namespace nam
 class DSP;
 }
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** A Neural Amp Modeler capture. Loading is slow and allocates, so it happens away
@@ -53,4 +53,4 @@ private:
     bool usable = true;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

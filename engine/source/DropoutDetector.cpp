@@ -1,8 +1,8 @@
-#include "rifftrack/DropoutDetector.h"
+#include "roughtrack/DropoutDetector.h"
 
 #include <algorithm>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 void DropoutDetector::reset() noexcept
@@ -47,4 +47,4 @@ std::vector<DropoutDetector::Dropout> DropoutDetector::getLog() const
     return { log.begin(), log.begin() + count };
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

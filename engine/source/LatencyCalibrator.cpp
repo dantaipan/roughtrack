@@ -1,4 +1,4 @@
-#include "rifftrack/LatencyCalibrator.h"
+#include "roughtrack/LatencyCalibrator.h"
 
 #include <Accelerate/Accelerate.h>
 
@@ -6,7 +6,7 @@
 #include <cmath>
 #include <numbers>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -146,4 +146,4 @@ LatencyCalibrator::Result LatencyCalibrator::analyse() const
     return result;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

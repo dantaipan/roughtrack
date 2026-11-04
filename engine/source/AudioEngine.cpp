@@ -1,12 +1,12 @@
-#include "rifftrack/AudioEngine.h"
+#include "roughtrack/AudioEngine.h"
 
-#include "rifftrack/Metronome.h"
+#include "roughtrack/Metronome.h"
 
 #include <algorithm>
 #include <cmath>
 #include <numbers>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -1517,4 +1517,4 @@ void AudioEngine::handleAsyncUpdate()
     finishTakes();
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

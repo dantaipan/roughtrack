@@ -1,6 +1,6 @@
 #include "TestHelpers.h"
 
-#include "rifftrack/Session.h"
+#include "roughtrack/Session.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
@@ -9,7 +9,7 @@
 #include <numbers>
 #include <thread>
 
-using namespace rifftrack;
+using namespace roughtrack;
 
 namespace
 {
@@ -17,7 +17,7 @@ namespace
 constexpr double sampleRate = 48000.0;
 constexpr int blockSize = 64;
 
-const juce::File examples (RIFFTRACK_NAM_EXAMPLES);
+const juce::File examples (ROUGHTRACK_NAM_EXAMPLES);
 
 /** Runs a signal through a track that's monitored, and returns the left output. */
 struct Rig
@@ -378,7 +378,7 @@ TEST_CASE ("Channel and aux settings come back with the session")
 
 TEST_CASE ("A session from before the channel strip still opens")
 {
-    juce::XmlElement xml ("RIFFTRACK_SESSION");
+    juce::XmlElement xml ("ROUGHTRACK_SESSION");
     xml.setAttribute ("tempo", 100.0);
     xml.createNewChildElement ("TRACK")->setAttribute ("index", 0);
 

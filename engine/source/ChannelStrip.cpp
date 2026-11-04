@@ -1,8 +1,8 @@
-#include "rifftrack/ChannelStrip.h"
+#include "roughtrack/ChannelStrip.h"
 
 #include <cmath>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -366,4 +366,4 @@ void AuxBuses::addReturns (float* left, float* right, int numSamples, double tem
     delayWritePosition = (delayWritePosition + numSamples) % lineLength;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

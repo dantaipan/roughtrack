@@ -5,7 +5,7 @@
 #include <atomic>
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Streams one recorded take to a 24-bit WAV file from the audio thread.
@@ -37,4 +37,4 @@ private:
     std::atomic<juce::int64> droppedSamples { 0 };
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

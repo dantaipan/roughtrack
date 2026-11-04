@@ -1,9 +1,9 @@
-#include "rifftrack/DrumKit.h"
+#include "roughtrack/DrumKit.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -139,4 +139,4 @@ DrumKit::Choice DrumKit::pick (DrumPiece piece, float velocity, juce::uint32 see
     return { &chosen.audio, juce::jlimit (minimumGain, maximumGain, target / chosen.level) };
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

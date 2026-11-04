@@ -1,10 +1,10 @@
-#include "rifftrack/Drums.h"
+#include "roughtrack/Drums.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -156,4 +156,4 @@ DrumPartList removePart (DrumPartList parts, int index)
     return parts;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

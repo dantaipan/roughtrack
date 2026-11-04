@@ -1,16 +1,16 @@
 #pragma once
 
-#include "rifftrack/ChannelStrip.h"
-#include "rifftrack/Clip.h"
-#include "rifftrack/DropoutDetector.h"
-#include "rifftrack/DrumSampler.h"
-#include "rifftrack/InsertChain.h"
-#include "rifftrack/LatencyCalibrator.h"
-#include "rifftrack/MidiSequencer.h"
-#include "rifftrack/TakeWriter.h"
-#include "rifftrack/TrackInstrument.h"
-#include "rifftrack/Tracks.h"
-#include "rifftrack/TrackPlayer.h"
+#include "roughtrack/ChannelStrip.h"
+#include "roughtrack/Clip.h"
+#include "roughtrack/DropoutDetector.h"
+#include "roughtrack/DrumSampler.h"
+#include "roughtrack/InsertChain.h"
+#include "roughtrack/LatencyCalibrator.h"
+#include "roughtrack/MidiSequencer.h"
+#include "roughtrack/TakeWriter.h"
+#include "roughtrack/TrackInstrument.h"
+#include "roughtrack/Tracks.h"
+#include "roughtrack/TrackPlayer.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 #include <juce_events/juce_events.h>
@@ -20,7 +20,7 @@
 #include <map>
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 enum class TransportState
@@ -420,9 +420,9 @@ private:
     GrooveLibrary grooves;
     std::shared_ptr<const DrumKit> drumKit;
     juce::AudioFormatManager formatManager;
-    juce::TimeSliceThread readThread { "RiffTrack disk read" }, writeThread { "RiffTrack disk write" };
+    juce::TimeSliceThread readThread { "RoughTrack disk read" }, writeThread { "RoughTrack disk write" };
 
     JUCE_DECLARE_NON_COPYABLE (AudioEngine)
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

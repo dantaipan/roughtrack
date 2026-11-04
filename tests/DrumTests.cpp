@@ -1,12 +1,12 @@
 #include "TestHelpers.h"
 
-#include "rifftrack/DrumSampler.h"
-#include "rifftrack/Session.h"
+#include "roughtrack/DrumSampler.h"
+#include "roughtrack/Session.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using namespace rifftrack;
+using namespace roughtrack;
 
 namespace
 {
@@ -455,7 +455,7 @@ TEST_CASE ("Older sessions open with audio tracks")
 {
     test::TempDirectory temp;
 
-    juce::XmlElement xml ("RIFFTRACK_SESSION");
+    juce::XmlElement xml ("ROUGHTRACK_SESSION");
     auto* track = xml.createNewChildElement ("TRACK");
     track->setAttribute ("index", 0);
     track->setAttribute ("name", "Guitar 1");

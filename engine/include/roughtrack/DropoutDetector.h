@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Spots dropouts from the hardware timestamp on each audio callback. A missed
@@ -47,4 +47,4 @@ private:
     std::uint64_t expectedGapNs = 0;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

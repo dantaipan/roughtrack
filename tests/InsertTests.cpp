@@ -1,11 +1,11 @@
 #include "TestHelpers.h"
 
-#include "rifftrack/AudioEngine.h"
+#include "roughtrack/AudioEngine.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using namespace rifftrack;
+using namespace roughtrack;
 
 namespace
 {

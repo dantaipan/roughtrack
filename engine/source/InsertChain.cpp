@@ -1,6 +1,6 @@
-#include "rifftrack/InsertChain.h"
+#include "roughtrack/InsertChain.h"
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -149,4 +149,4 @@ void InsertChain::processSlot (Slot& slot, float* left, float* right, int numSam
     juce::FloatVectorOperations::copy (right, channels[slot.numOutputs == 1 ? 0 : 1], numSamples);
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

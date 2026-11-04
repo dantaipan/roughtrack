@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rifftrack/AmpModel.h"
+#include "roughtrack/AmpModel.h"
 
 #include <juce_dsp/juce_dsp.h>
 
@@ -8,7 +8,7 @@
 #include <atomic>
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 enum class ChannelParameter
@@ -146,4 +146,4 @@ private:
     double currentSampleRate = 48000.0;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

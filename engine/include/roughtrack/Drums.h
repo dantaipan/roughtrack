@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 enum class DrumPiece
@@ -98,4 +98,4 @@ DrumPartList trimPartEnd (DrumPartList, int index, int newEndBar);
 DrumPartList splitPart (DrumPartList, int index, int bar);
 DrumPartList removePart (DrumPartList, int index);
 
-} // namespace rifftrack
+} // namespace roughtrack

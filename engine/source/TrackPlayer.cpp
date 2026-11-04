@@ -1,6 +1,6 @@
-#include "rifftrack/TrackPlayer.h"
+#include "roughtrack/TrackPlayer.h"
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -206,4 +206,4 @@ void TrackPlayer::render (int ringStart, int numSamples)
     }
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

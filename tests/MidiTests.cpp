@@ -1,11 +1,11 @@
 #include "TestHelpers.h"
 
-#include "rifftrack/Session.h"
+#include "roughtrack/Session.h"
 #include "TimelineView.h"
 
 #include <catch2/catch_test_macros.hpp>
 
-using namespace rifftrack;
+using namespace roughtrack;
 
 namespace
 {

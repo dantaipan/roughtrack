@@ -2,7 +2,7 @@
 
 #include "VuMeter.h"
 
-#include "rifftrack/AudioEngine.h"
+#include "roughtrack/AudioEngine.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -10,7 +10,7 @@
 class MasterStrip final : public juce::Component
 {
 public:
-    explicit MasterStrip (rifftrack::AudioEngine&);
+    explicit MasterStrip (roughtrack::AudioEngine&);
 
     /** Matches the fader to the engine after a session loads. */
     void refreshFromEngine();
@@ -20,7 +20,7 @@ public:
     void resized() override;
 
 private:
-    rifftrack::AudioEngine& engine;
+    roughtrack::AudioEngine& engine;
 
     juce::Label nameLabel;
     VuMeter vuMeter;

@@ -1,4 +1,4 @@
-add_library(rifftrack_engine STATIC
+add_library(roughtrack_engine STATIC
     source/AmpModel.cpp
     source/AudioDevices.cpp
     source/AudioEngine.cpp
@@ -22,12 +22,12 @@ add_library(rifftrack_engine STATIC
     source/TrackPlayer.cpp
     source/Tuner.cpp)
 
-target_include_directories(rifftrack_engine PUBLIC include)
+target_include_directories(roughtrack_engine PUBLIC include)
 
-target_link_libraries(rifftrack_engine
+target_link_libraries(roughtrack_engine
     PUBLIC
-        rifftrack_juce
-        "$<LINK_LIBRARY:WHOLE_ARCHIVE,rifftrack_nam>"
+        roughtrack_juce
+        "$<LINK_LIBRARY:WHOLE_ARCHIVE,roughtrack_nam>"
         "-framework Accelerate"
         "-framework AVFoundation"
     PRIVATE

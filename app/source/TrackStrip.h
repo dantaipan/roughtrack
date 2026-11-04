@@ -2,7 +2,7 @@
 
 #include "VuMeter.h"
 
-#include "rifftrack/AudioEngine.h"
+#include "roughtrack/AudioEngine.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -28,7 +28,7 @@ public:
 class TrackStrip final : public juce::Component
 {
 public:
-    TrackStrip (rifftrack::AudioEngine& engine, int trackIndex);
+    TrackStrip (roughtrack::AudioEngine& engine, int trackIndex);
 
     enum class Layout
     {
@@ -71,9 +71,9 @@ private:
     void applyLayout();
     void updateVisibility();
 
-    rifftrack::AudioEngine& engine;
+    roughtrack::AudioEngine& engine;
     const int index;
-    const rifftrack::TrackType type;
+    const roughtrack::TrackType type;
     Layout layout = Layout::row;
 
     juce::Label nameLabel;
@@ -81,7 +81,7 @@ private:
     juce::TextButton invertButton;
     juce::ComboBox inputSelector;
     juce::Slider gainSlider, panSlider;
-    std::array<InsertButton, rifftrack::instrumentSlot + 1> insertButtons;
+    std::array<InsertButton, roughtrack::instrumentSlot + 1> insertButtons;
     VuMeter vuMeter;
     juce::Rectangle<int> meterBounds;
     float meterLevel = 0.0f;

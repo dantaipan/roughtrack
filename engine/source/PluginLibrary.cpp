@@ -1,8 +1,8 @@
-#include "rifftrack/PluginLibrary.h"
+#include "roughtrack/PluginLibrary.h"
 
 #include <algorithm>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -15,7 +15,7 @@ constexpr int stopTimeoutMs = 5000;
 } // namespace
 
 PluginLibrary::PluginLibrary (juce::File listFile)
-    : juce::Thread ("RiffTrack plugin scan"), file (std::move (listFile))
+    : juce::Thread ("RoughTrack plugin scan"), file (std::move (listFile))
 {
     addPluginFormats (formats);
     setPlugins (readPluginList (file));
@@ -112,4 +112,4 @@ void PluginLibrary::createInstance (const juce::PluginDescription& description, 
     formats.createPluginInstanceAsync (description, sampleRate, blockSize, std::move (ready));
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** A stretch of an audio file placed on the timeline. Editing only ever changes
@@ -57,4 +57,4 @@ ClipList trimClipEnd (ClipList, int index, juce::int64 newTimelineEnd);
 ClipList splitClip (ClipList, int index, juce::int64 position);
 ClipList removeClip (ClipList, int index);
 
-} // namespace rifftrack
+} // namespace roughtrack

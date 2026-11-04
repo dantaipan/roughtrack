@@ -4,7 +4,7 @@
 
 #include <vector>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 struct TunerReading
@@ -45,4 +45,4 @@ private:
     std::vector<float> reduced, difference;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

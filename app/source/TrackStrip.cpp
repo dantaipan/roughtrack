@@ -45,7 +45,7 @@ void drawFaderScale (juce::Graphics& g, const juce::Slider& fader, juce::Rectang
     }
 }
 
-TrackStrip::TrackStrip (rifftrack::AudioEngine& engineToControl, int trackIndex)
+TrackStrip::TrackStrip (roughtrack::AudioEngine& engineToControl, int trackIndex)
     : engine (engineToControl), index (trackIndex), type (engineToControl.getTrackType (trackIndex))
 {
     nameLabel.setText (engine.getTrackName (index), juce::dontSendNotification);
@@ -106,7 +106,7 @@ TrackStrip::TrackStrip (rifftrack::AudioEngine& engineToControl, int trackIndex)
     vuMeter.setTooltip ("0 is a good recording level. The light means a clip: click it to clear it.");
     addAndMakeVisible (vuMeter);
 
-    for (int slot = 0; slot <= rifftrack::instrumentSlot; ++slot)
+    for (int slot = 0; slot <= roughtrack::instrumentSlot; ++slot)
     {
         auto& button = insertButtons[(size_t) slot];
         button.onInsertClick = [this, slot, &button] (bool wantsMenu)
@@ -154,9 +154,9 @@ void TrackStrip::applyLayout()
 void TrackStrip::updateVisibility()
 {
     const auto isChannel = layout == Layout::channel;
-    const auto isAudio = type == rifftrack::TrackType::audio;
+    const auto isAudio = type == roughtrack::TrackType::audio;
 
-    armButton.setVisible (type != rifftrack::TrackType::drums);
+    armButton.setVisible (type != roughtrack::TrackType::drums);
     monitorButton.setVisible (isAudio);
     inputSelector.setVisible (isChannel && isAudio);
     invertButton.setVisible (isChannel && isAudio);
@@ -164,10 +164,10 @@ void TrackStrip::updateVisibility()
     vuMeter.setVisible (isChannel);
     channelButton.setVisible (isChannel);
 
-    for (int slot = 0; slot < rifftrack::numInsertSlots; ++slot)
+    for (int slot = 0; slot < roughtrack::numInsertSlots; ++slot)
         insertButtons[(size_t) slot].setVisible (isChannel);
 
-    insertButtons[rifftrack::instrumentSlot].setVisible (isChannel && type == rifftrack::TrackType::midi);
+    insertButtons[roughtrack::instrumentSlot].setVisible (isChannel && type == roughtrack::TrackType::midi);
 }
 
 void TrackStrip::showChannelActive (bool hasAmp)
@@ -181,7 +181,7 @@ void TrackStrip::showInsert (int slot, const juce::String& pluginName, bool bypa
     auto& button = insertButtons[(size_t) slot];
     const auto isEmpty = pluginName.isEmpty();
 
-    const auto isInstrument = slot == rifftrack::instrumentSlot;
+    const auto isInstrument = slot == roughtrack::instrumentSlot;
 
     button.setButtonText (isEmpty ? juce::String (isInstrument ? "+ Instrument" : "+ Insert") : pluginName);
     button.setTooltip (isEmpty ? (isInstrument ? "Choose an instrument" : "Add a plugin") : pluginName + ". Click to open, right-click for options");
@@ -292,7 +292,7 @@ void TrackStrip::applySelectedInput()
 // whether or not it's being monitored.
 void TrackStrip::updateMeter()
 {
-    const auto showsInput = type == rifftrack::TrackType::audio && engine.isTrackArmed (index);
+    const auto showsInput = type == roughtrack::TrackType::audio && engine.isTrackArmed (index);
     const auto peak = showsInput ? engine.takeTrackInputPeak (index) : engine.takeTrackPeak (index);
 
     if (layout == Layout::channel)
@@ -388,9 +388,9 @@ void TrackStrip::layOutChannel()
     inputLine.removeFromRight (gap);
     inputSelector.setBounds (inputLine);
 
-    insertButtons[rifftrack::instrumentSlot].setBounds (inputLine.withRight (invertButton.getRight()));
+    insertButtons[roughtrack::instrumentSlot].setBounds (inputLine.withRight (invertButton.getRight()));
 
-    for (int slot = 0; slot < rifftrack::numInsertSlots; ++slot)
+    for (int slot = 0; slot < roughtrack::numInsertSlots; ++slot)
         insertButtons[(size_t) slot].setBounds (line (insertHeight));
 
     channelButton.setBounds (line (channelLineHeight));

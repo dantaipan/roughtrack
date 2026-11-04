@@ -7,7 +7,7 @@ constexpr int labelWidth = 110;
 } // namespace
 
 ParameterPanel::ParameterPanel (int numParameters,
-                                std::function<const rifftrack::ParameterInfo& (int)> infoFor,
+                                std::function<const roughtrack::ParameterInfo& (int)> infoFor,
                                 Getter getter,
                                 Setter setter)
     : getValue (std::move (getter)), setValue (std::move (setter))

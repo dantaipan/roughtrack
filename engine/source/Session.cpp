@@ -1,6 +1,6 @@
-#include "rifftrack/Session.h"
+#include "roughtrack/Session.h"
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -13,7 +13,7 @@ constexpr std::array<const char*, 3> trackTypeNames { "audio", "drums", "midi" }
 
 std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, const juce::File& sessionDirectory)
 {
-    auto xml = std::make_unique<juce::XmlElement> ("RIFFTRACK_SESSION");
+    auto xml = std::make_unique<juce::XmlElement> ("ROUGHTRACK_SESSION");
     xml->setAttribute ("version", sessionVersion);
     xml->setAttribute ("sampleRate", engine.getSampleRate());
     xml->setAttribute ("tempo", engine.getTempo());
@@ -83,8 +83,9 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
 
 juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, const juce::File& sessionDirectory)
 {
-    if (! xml.hasTagName ("RIFFTRACK_SESSION"))
-        return juce::Result::fail ("That isn't a RiffTrack session.");
+    // Sessions saved before the app was renamed say RIFFTRACK_SESSION.
+    if (! xml.hasTagName ("ROUGHTRACK_SESSION") && ! xml.hasTagName ("RIFFTRACK_SESSION"))
+        return juce::Result::fail ("That isn't a RoughTrack session.");
 
     engine.setTempo (xml.getDoubleAttribute ("tempo", engine.getTempo()));
     engine.setClickEnabled (xml.getBoolAttribute ("click"));
@@ -252,4 +253,4 @@ bool ClipEdit::undo()
     return engine.setClips (track, before).wasOk();
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

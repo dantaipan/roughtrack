@@ -24,16 +24,16 @@ FetchContent_MakeAvailable(JUCE Catch2 NeuralAmpModelerCore)
 # JUCE modules are INTERFACE libraries whose sources compile into every target
 # that links them. Compiling them once here stops the engine, app and tests each
 # carrying a copy, which would otherwise collide at link time.
-add_library(rifftrack_juce STATIC)
+add_library(roughtrack_juce STATIC)
 
-target_link_libraries(rifftrack_juce
+target_link_libraries(roughtrack_juce
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
     PUBLIC
         juce::juce_recommended_config_flags)
 
-target_compile_definitions(rifftrack_juce
+target_compile_definitions(roughtrack_juce
     PUBLIC
         DONT_SET_USING_JUCE_NAMESPACE=1
         JUCE_PLUGINHOST_AU=1
@@ -44,24 +44,24 @@ target_compile_definitions(rifftrack_juce
 
 # Linking the modules PRIVATE keeps their sources out of consumers, so their
 # include paths and definitions have to be re-exported by hand.
-target_include_directories(rifftrack_juce
-    INTERFACE $<TARGET_PROPERTY:rifftrack_juce,INCLUDE_DIRECTORIES>)
+target_include_directories(roughtrack_juce
+    INTERFACE $<TARGET_PROPERTY:roughtrack_juce,INCLUDE_DIRECTORIES>)
 
-target_compile_definitions(rifftrack_juce
-    INTERFACE $<TARGET_PROPERTY:rifftrack_juce,COMPILE_DEFINITIONS>)
+target_compile_definitions(roughtrack_juce
+    INTERFACE $<TARGET_PROPERTY:roughtrack_juce,COMPILE_DEFINITIONS>)
 
 # NAM's model types register themselves from static objects that nothing refers
 # to, so consumers link the whole archive or they'd be dropped.
-file(GLOB rifftrack_nam_sources CONFIGURE_DEPENDS
+file(GLOB roughtrack_nam_sources CONFIGURE_DEPENDS
     ${neuralampmodelercore_SOURCE_DIR}/NAM/*.cpp
     ${neuralampmodelercore_SOURCE_DIR}/NAM/wavenet/*.cpp)
 
-add_library(rifftrack_nam STATIC ${rifftrack_nam_sources})
+add_library(roughtrack_nam STATIC ${roughtrack_nam_sources})
 
-target_include_directories(rifftrack_nam SYSTEM
+target_include_directories(roughtrack_nam SYSTEM
     PUBLIC
         ${neuralampmodelercore_SOURCE_DIR}
         ${neuralampmodelercore_SOURCE_DIR}/Dependencies/eigen
         ${neuralampmodelercore_SOURCE_DIR}/Dependencies/nlohmann)
 
-target_compile_definitions(rifftrack_nam PUBLIC NAM_SAMPLE_FLOAT)
+target_compile_definitions(roughtrack_nam PUBLIC NAM_SAMPLE_FLOAT)

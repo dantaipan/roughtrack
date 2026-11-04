@@ -8,11 +8,11 @@
 
 TEST_CASE ("A take survives its process being killed mid-recording")
 {
-    rifftrack::test::TempDirectory temp;
+    roughtrack::test::TempDirectory temp;
     const auto file = temp.directory.getChildFile ("take.wav");
 
     juce::ChildProcess recorder;
-    REQUIRE (recorder.start (juce::StringArray { RIFFTRACK_BENCH_PATH, "crash-writer", file.getFullPathName() }));
+    REQUIRE (recorder.start (juce::StringArray { ROUGHTRACK_BENCH_PATH, "crash-writer", file.getFullPathName() }));
 
     const auto started = juce::Time::getMillisecondCounterHiRes();
 
@@ -27,7 +27,7 @@ TEST_CASE ("A take survives its process being killed mid-recording")
     const auto elapsedSeconds = (juce::Time::getMillisecondCounterHiRes() - started) / 1000.0;
     REQUIRE (recorder.kill());
 
-    const auto reader = rifftrack::test::openReader (file);
+    const auto reader = roughtrack::test::openReader (file);
     REQUIRE (reader != nullptr);
     CHECK (reader->bitsPerSample == 24);
 
@@ -37,7 +37,7 @@ TEST_CASE ("A take survives its process being killed mid-recording")
     // Allows for one flush interval plus process start-up.
     CHECK (recoveredSeconds >= elapsedSeconds - 1.75);
 
-    const auto recovered = rifftrack::test::readAll (file);
+    const auto recovered = roughtrack::test::readAll (file);
 
     for (int i = 0; i < recovered.getNumSamples(); i += 1009)
     {

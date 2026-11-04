@@ -1,5 +1,5 @@
-#include "rifftrack/AudioEngine.h"
-#include "rifftrack/Tuner.h"
+#include "roughtrack/AudioEngine.h"
+#include "roughtrack/Tuner.h"
 
 #include "TestHelpers.h"
 
@@ -10,7 +10,7 @@
 #include <cmath>
 #include <numbers>
 
-using namespace rifftrack;
+using namespace roughtrack;
 using Catch::Approx;
 
 namespace

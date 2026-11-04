@@ -9,8 +9,8 @@
 #include "TrackStrip.h"
 #include "TunerRibbon.h"
 
-#include "rifftrack/PluginLibrary.h"
-#include "rifftrack/Session.h"
+#include "roughtrack/PluginLibrary.h"
+#include "roughtrack/Session.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -66,7 +66,7 @@ private:
     void askWhereToMixDown();
     void mixDown (const juce::File&);
     void exportStems();
-    void mixdownFinished (const juce::File&, const rifftrack::AudioEngine::BounceResult&, bool isStems);
+    void mixdownFinished (const juce::File&, const roughtrack::AudioEngine::BounceResult&, bool isStems);
     void restoreChosenAudioDevice();
     void confirmCalibration();
     void finishCalibration();
@@ -91,8 +91,8 @@ private:
     void saveSession();
     void showSessionMenu();
     void askForNewSession();
-    void applyClipEdit (int track, const rifftrack::ClipList&, const juce::String& editName);
-    void applyDrumEdit (int track, const rifftrack::DrumPartList&, const juce::String& editName);
+    void applyClipEdit (int track, const roughtrack::ClipList&, const juce::String& editName);
+    void applyDrumEdit (int track, const roughtrack::DrumPartList&, const juce::String& editName);
     void recordingFinished();
     void clipsChanged();
     void undoOrRedo (bool redo);
@@ -105,7 +105,7 @@ private:
     void startPluginScan();
     void showInsertMenu (int track, int slot, juce::Component& button);
     void insertClicked (int track, int slot, bool wantsMenu, juce::Component& button);
-    void loadInsert (int track, int slot, const rifftrack::SavedInsert&);
+    void loadInsert (int track, int slot, const roughtrack::SavedInsert&);
     void removeInsert (int track, int slot);
     void openPluginWindow (int track, int slot);
     void refreshInsert (int track, int slot);
@@ -115,12 +115,12 @@ private:
     bool canChangeInserts();
     juce::File insertsFile() const;
 
-    rifftrack::AudioEngine engine;
+    roughtrack::AudioEngine engine;
     juce::AudioDeviceManager deviceManager;
     juce::MidiDeviceListConnection midiDevices;
     juce::String midiInputNames;
     std::unique_ptr<juce::PropertiesFile> settings;
-    std::unique_ptr<rifftrack::PluginLibrary> pluginLibrary;
+    std::unique_ptr<roughtrack::PluginLibrary> pluginLibrary;
     juce::TooltipWindow tooltips { this };
 
     TransportButton returnButton { "Return", TransportButton::Icon::returnToStart }, playButton { "Play", TransportButton::Icon::play },
@@ -138,7 +138,7 @@ private:
     bool latestMessageIsWarning = false;
     juce::uint32 showMessageUntil = 0;
 
-    std::array<std::unique_ptr<TrackStrip>, rifftrack::maxTracks> strips;
+    std::array<std::unique_ptr<TrackStrip>, roughtrack::maxTracks> strips;
     juce::Component stripHolder;
     juce::ScrollBar trackScrollBar { true }, consoleScrollBar { false };
     int trackScrollOffset = 0;
@@ -146,9 +146,9 @@ private:
     TunerRibbon tuner { engine };
     int numInputChannels = 0;
     std::unique_ptr<TimelineView> timeline;
-    std::array<std::unique_ptr<PanelWindow>, rifftrack::maxTracks> channelWindows;
+    std::array<std::unique_ptr<PanelWindow>, roughtrack::maxTracks> channelWindows;
     std::unique_ptr<PanelWindow> effectsWindow;
-    std::array<std::array<std::unique_ptr<PluginWindow>, rifftrack::instrumentSlot + 1>, rifftrack::maxTracks> pluginWindows;
+    std::array<std::array<std::unique_ptr<PluginWindow>, roughtrack::instrumentSlot + 1>, roughtrack::maxTracks> pluginWindows;
     int numInsertsRestoring = 0;
     bool insertsNeedKeeping = false;
 
@@ -156,7 +156,7 @@ private:
     const bool sessionWasGiven;
     bool sessionLoaded = false;
     juce::UndoManager undoManager;
-    std::array<rifftrack::ClipList, rifftrack::maxTracks> clipsBeforeRecording;
+    std::array<roughtrack::ClipList, roughtrack::maxTracks> clipsBeforeRecording;
     bool recordingInProgress = false;
     juce::String lastSavedSession;
     int autosaveCountdown = 0;

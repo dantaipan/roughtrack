@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rifftrack/ChannelStrip.h"
+#include "roughtrack/ChannelStrip.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -13,7 +13,7 @@ public:
     using Getter = std::function<float (int)>;
     using Setter = std::function<void (int, float)>;
 
-    ParameterPanel (int numParameters, std::function<const rifftrack::ParameterInfo& (int)> infoFor, Getter, Setter);
+    ParameterPanel (int numParameters, std::function<const roughtrack::ParameterInfo& (int)> infoFor, Getter, Setter);
 
     void refresh();
     void resized() override;

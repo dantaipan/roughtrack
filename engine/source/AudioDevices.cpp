@@ -1,10 +1,10 @@
-#include "rifftrack/AudioDevices.h"
+#include "roughtrack/AudioDevices.h"
 
 #include <juce_audio_devices/juce_audio_devices.h>
 
 #include <algorithm>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -91,4 +91,4 @@ double bufferLatencyMs (int bufferSizeSamples, double sampleRate)
     return sampleRate > 0.0 ? 1000.0 * bufferSizeSamples / sampleRate : 0.0;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

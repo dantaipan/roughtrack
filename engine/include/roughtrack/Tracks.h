@@ -2,7 +2,7 @@
 
 #include <array>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Tracks are reserved up front so adding one never touches the audio thread. */
@@ -28,4 +28,4 @@ inline constexpr std::array<const char*, 7> legacyTrackNames { "Drums",
                                                                "Guitar 4",
                                                                "Vocal" };
 
-} // namespace rifftrack
+} // namespace roughtrack

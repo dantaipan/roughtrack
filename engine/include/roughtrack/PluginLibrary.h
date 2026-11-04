@@ -1,10 +1,10 @@
 #pragma once
 
-#include "rifftrack/PluginScanner.h"
+#include "roughtrack/PluginScanner.h"
 
 #include <juce_events/juce_events.h>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** The effects and instruments available to load, kept in a file so startup needn't rescan. */
@@ -49,4 +49,4 @@ private:
     JUCE_DECLARE_WEAK_REFERENCEABLE (PluginLibrary)
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

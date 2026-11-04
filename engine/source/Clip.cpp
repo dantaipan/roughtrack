@@ -1,6 +1,6 @@
-#include "rifftrack/Clip.h"
+#include "roughtrack/Clip.h"
 
-namespace rifftrack
+namespace roughtrack
 {
 
 namespace
@@ -132,4 +132,4 @@ ClipList removeClip (ClipList clips, int index)
     return clips;
 }
 
-} // namespace rifftrack
+} // namespace roughtrack

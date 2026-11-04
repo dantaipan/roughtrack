@@ -1,12 +1,12 @@
 #include "TestHelpers.h"
 
-#include "rifftrack/TakeWriter.h"
-#include "rifftrack/TrackPlayer.h"
+#include "roughtrack/TakeWriter.h"
+#include "roughtrack/TrackPlayer.h"
 
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
-using namespace rifftrack;
+using namespace roughtrack;
 
 TEST_CASE ("TakeWriter writes a 24-bit WAV that reads back intact")
 {

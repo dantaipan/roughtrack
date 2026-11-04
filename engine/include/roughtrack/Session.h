@@ -1,10 +1,10 @@
 #pragma once
 
-#include "rifftrack/AudioEngine.h"
+#include "roughtrack/AudioEngine.h"
 
 #include <juce_data_structures/juce_data_structures.h>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Takes, positions and mixer settings. Plugins are saved separately because
@@ -49,4 +49,4 @@ private:
     const DrumPartList before, after;
 };
 
-} // namespace rifftrack
+} // namespace roughtrack

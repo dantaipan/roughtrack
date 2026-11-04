@@ -1,6 +1,6 @@
 #pragma once
 
-#include "rifftrack/Clip.h"
+#include "roughtrack/Clip.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -8,7 +8,7 @@
 #include <map>
 #include <memory>
 
-namespace rifftrack
+namespace roughtrack
 {
 
 /** Streams a track's clips from disk so the audio thread never touches the files.
@@ -62,4 +62,4 @@ private:
     std::atomic<juce::int64> underrunSamples { 0 };
 };
 
-} // namespace rifftrack
+} // namespace roughtrack
