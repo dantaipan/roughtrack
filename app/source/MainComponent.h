@@ -191,6 +191,6 @@ private:
     bool calibrating = false;
     bool latencyIsCalibrated = false;
     juce::Component::SafePointer<juce::DialogWindow> audioSettingsWindow, aboutWindow;
-    juce::String lastAudioRestoreFrom;
+    juce::String lastAudioRestoreFrom, lastRateWarning;
     std::unique_ptr<juce::FileChooser> mixdownChooser;
 };

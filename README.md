@@ -26,6 +26,8 @@ The app is built to `build/debug/app/RoughTrack_artefacts/Debug/RoughTrack.app`.
 
 Each session is a folder in `~/Music/RoughTrack`, holding its takes, `session.xml` and `inserts.xml`. It saves automatically, and the folder can be moved.
 
+A session keeps the sample rate its first audio take was recorded at, and when it opens, RoughTrack sets the interface to that rate. Another app, such as GarageBand, can hold the interface at a different rate. Then the status line says so in amber, because takes would play at the wrong speed and pitch, and recording audio and mixing down wait until the rates match. MIDI and drums follow the tempo, so a session without audio takes runs at any rate.
+
 Editing never changes a recording. Takes are always dry, and clips only say which part of a take plays and when. A new recording plays over what's already there, so punching in replaces only the part it covers. Press **Record** during playback to punch in at that moment, and **Stop** to end the take.
 
 A new session starts with one audio track. The dashed **+ Track** after the last track, in the timeline or the console, adds more, up to 24: **Audio** for anything through your interface, **MIDI** or **Drums**. Drag a track up or down by its name to reorder it, and the console follows. Double-click a track's name to rename it, and right-click it to delete the track. Deleting a track leaves its recordings in the session folder.

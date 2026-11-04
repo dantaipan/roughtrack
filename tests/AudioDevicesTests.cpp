@@ -70,3 +70,56 @@ TEST_CASE ("The chosen audio setup comes back once its device is there")
         CHECK_FALSE (roughtrack::shouldRestoreAudioDevice (chosen, { "MacBook Pro Speakers", 48000.0, 512 }, withoutInterface));
     }
 }
+
+TEST_CASE ("A session's rate wins over the one picked in Audio Settings")
+{
+    const roughtrack::AudioDeviceChoice chosen { "Scarlett 2i2 4th Gen", 44100.0, 64 };
+
+    CHECK (roughtrack::withSessionRate (chosen, 48000.0).sampleRate == 48000.0);
+    CHECK (roughtrack::withSessionRate (chosen, 0.0).sampleRate == 44100.0);
+    CHECK (roughtrack::withSessionRate (chosen, 48000.0).bufferSize == 64);
+}
+
+TEST_CASE ("A session at another rate brings the interface round to it")
+{
+    // GarageBand left the Scarlett at 44.1 kHz; the session's takes are at 48 kHz.
+    const roughtrack::AudioDeviceChoice running { "Scarlett 2i2 4th Gen", 44100.0, 64 };
+    const auto wanted = roughtrack::withSessionRate (running, 48000.0);
+
+    CHECK (roughtrack::shouldRestoreAudioDevice (wanted, running, { "Scarlett 2i2 4th Gen" }));
+    CHECK_FALSE (roughtrack::shouldRestoreAudioDevice (roughtrack::withSessionRate (running, 44100.0), running, { "Scarlett 2i2 4th Gen" }));
+}
+
+TEST_CASE ("Rates are named the way people say them")
+{
+    CHECK (roughtrack::describeSampleRate (48000.0) == "48 kHz");
+    CHECK (roughtrack::describeSampleRate (44100.0) == "44.1 kHz");
+    CHECK (roughtrack::describeSampleRate (22050.0) == "22.05 kHz");
+    CHECK (roughtrack::describeSampleRate (96000.0) == "96 kHz");
+}
+
+TEST_CASE ("With the chosen interface unplugged, the one running is set to the session's rate")
+{
+    const roughtrack::AudioDeviceChoice picked { "Scarlett 2i2 4th Gen", 48000.0, 64 };
+    const roughtrack::AudioDeviceChoice running { "MacBook Pro Speakers", 44100.0, 512 };
+    const std::vector<std::string> outputs { "MacBook Pro Speakers" };
+
+    const auto wanted = roughtrack::wantedAudioDevice (picked, running, 48000.0, outputs);
+
+    CHECK (wanted.outputDevice == "MacBook Pro Speakers");
+    CHECK (wanted.sampleRate == 48000.0);
+    CHECK (wanted.bufferSize == 512);
+    CHECK (roughtrack::shouldRestoreAudioDevice (wanted, running, outputs));
+}
+
+TEST_CASE ("With the chosen interface connected, it's used at the session's rate")
+{
+    const roughtrack::AudioDeviceChoice picked { "Scarlett 2i2 4th Gen", 44100.0, 64 };
+    const roughtrack::AudioDeviceChoice running { "MacBook Pro Speakers", 48000.0, 512 };
+
+    const auto wanted = roughtrack::wantedAudioDevice (picked, running, 48000.0, { "MacBook Pro Speakers", "Scarlett 2i2 4th Gen" });
+
+    CHECK (wanted.outputDevice == "Scarlett 2i2 4th Gen");
+    CHECK (wanted.sampleRate == 48000.0);
+    CHECK (wanted.bufferSize == 64);
+}

@@ -513,6 +513,10 @@ void MainComponent::loadCurrentSession()
     timeline->setSessionDirectory (currentSession);
     clipsChanged();
     restoreInserts();
+
+    // A new session may want another rate, so it gets its own try at switching.
+    lastAudioRestoreFrom = {};
+    restoreChosenAudioDevice();
 }
 
 // Nothing is saved until a session has loaded, or quitting early, such as with
@@ -1262,23 +1266,26 @@ void MainComponent::restoreChosenAudioDevice()
     auto* type = deviceManager.getCurrentDeviceTypeObject();
     const auto chosenXml = settings->getXmlValue ("audioDevice");
 
-    if (audioSettingsWindow != nullptr || calibrating || type == nullptr || chosenXml == nullptr
-        || engine.getState() != roughtrack::TransportState::stopped)
+    if (audioSettingsWindow != nullptr || calibrating || type == nullptr || engine.getState() != roughtrack::TransportState::stopped)
         return;
-
-    const roughtrack::AudioDeviceChoice chosen { chosenXml->getStringAttribute ("audioOutputDeviceName").toStdString(),
-                                                chosenXml->getDoubleAttribute ("audioDeviceRate"),
-                                                chosenXml->getIntAttribute ("audioDeviceBufferSize") };
 
     const auto setup = deviceManager.getAudioDeviceSetup();
     const roughtrack::AudioDeviceChoice current { setup.outputDeviceName.toStdString(),
                                                  device != nullptr ? device->getCurrentSampleRate() : 0.0,
                                                  device != nullptr ? device->getCurrentBufferSizeSamples() : 0 };
 
+    const auto picked = chosenXml != nullptr ? roughtrack::AudioDeviceChoice { chosenXml->getStringAttribute ("audioOutputDeviceName").toStdString(),
+                                                                               chosenXml->getDoubleAttribute ("audioDeviceRate"),
+                                                                               chosenXml->getIntAttribute ("audioDeviceBufferSize") }
+                                             : roughtrack::AudioDeviceChoice {};
+
     std::vector<std::string> outputs;
 
     for (const auto& name : type->getDeviceNames (false))
         outputs.push_back (name.toStdString());
+
+    const auto chosen = roughtrack::wantedAudioDevice (picked, current, engine.getSessionSampleRate(), outputs);
+    const auto usesPicked = ! picked.outputDevice.empty() && chosen.outputDevice == picked.outputDevice;
 
     if (! roughtrack::shouldRestoreAudioDevice (chosen, current, outputs))
     {
@@ -1295,17 +1302,27 @@ void MainComponent::restoreChosenAudioDevice()
     lastAudioRestoreFrom = from;
 
     auto restored = setup;
-    restored.outputDeviceName = chosenXml->getStringAttribute ("audioOutputDeviceName");
-    restored.inputDeviceName = chosenXml->getStringAttribute ("audioInputDeviceName");
+
+    if (usesPicked)
+    {
+        restored.outputDeviceName = chosenXml->getStringAttribute ("audioOutputDeviceName");
+        restored.inputDeviceName = chosenXml->getStringAttribute ("audioInputDeviceName");
+    }
+
     restored.sampleRate = chosen.sampleRate;
     restored.bufferSize = chosen.bufferSize;
     restored.useDefaultInputChannels = true;
     restored.useDefaultOutputChannels = true;
 
+    const auto onlyTheRate = restored.outputDeviceName.toStdString() == current.outputDevice && chosen.bufferSize == current.bufferSize;
     const auto error = deviceManager.setAudioDeviceSetup (restored, false);
 
-    showPluginMessage (error.isEmpty() ? "Back on " + restored.outputDeviceName + " at " + juce::String (chosen.bufferSize) + " samples."
-                                       : "Couldn't return to " + restored.outputDeviceName + ": " + error);
+    if (error.isNotEmpty())
+        showPluginMessage ("Couldn't return to " + restored.outputDeviceName + ": " + error);
+    else if (onlyTheRate)
+        showPluginMessage ("Set " + restored.outputDeviceName + " to " + juce::String (roughtrack::describeSampleRate (chosen.sampleRate)) + " to match this session.");
+    else
+        showPluginMessage ("Back on " + restored.outputDeviceName + " at " + juce::String (chosen.bufferSize) + " samples.");
 }
 
 void MainComponent::confirmCalibration()
@@ -1392,6 +1409,14 @@ void MainComponent::timerCallback()
     }
 
     consolePanel.getMaster().updateMeter();
+
+    if (const auto rateWarning = engine.getSampleRateWarning(); rateWarning != lastRateWarning)
+    {
+        lastRateWarning = rateWarning;
+
+        if (rateWarning.isNotEmpty())
+            messageButton.add (rateWarning, true);
+    }
 
     if (tuner.isVisible())
         updateTuner();
@@ -1563,6 +1588,14 @@ void MainComponent::updateStatus()
     {
         statusLabel.setColour (juce::Label::textColourId, latestMessageIsWarning ? console::amber : console::cream);
         statusLabel.setText (latestMessage, juce::dontSendNotification);
+        return;
+    }
+
+    // Unlike other messages this one stays, because everything plays wrong until it's fixed.
+    if (const auto rateWarning = engine.getSampleRateWarning(); rateWarning.isNotEmpty())
+    {
+        statusLabel.setColour (juce::Label::textColourId, console::amber);
+        statusLabel.setText (rateWarning, juce::dontSendNotification);
         return;
     }
 

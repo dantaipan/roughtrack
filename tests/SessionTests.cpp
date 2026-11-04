@@ -278,15 +278,23 @@ TEST_CASE ("A missing take is reported but stays on its track")
     CHECK (restored.getClips (0).size() == 1);
 }
 
-TEST_CASE ("A session at another sample rate says so")
+TEST_CASE ("A session at another sample rate still opens, and says why it sounds wrong")
 {
     Rig rig;
+    const auto file = writeRamp (rig.temp.directory, "take.wav", 48000);
+    REQUIRE (rig.engine.setClips (0, { makeClip (file, 0, 0, 1000) }).wasOk());
     const auto xml = createSessionXml (rig.engine, rig.temp.directory);
 
     AudioEngine restored;
+    restored.setSessionDirectory (rig.temp.directory);
     restored.prepare (44100.0, blockSize);
 
-    CHECK (applySessionXml (restored, *xml, rig.temp.directory).failed());
+    // Opening it is fine; the warning stays with the engine for as long as the rates differ.
+    CHECK (applySessionXml (restored, *xml, rig.temp.directory).wasOk());
+    CHECK (restored.getSampleRateWarning().isNotEmpty());
+
+    restored.prepare (48000.0, blockSize);
+    CHECK (restored.getSampleRateWarning().isEmpty());
 }
 
 TEST_CASE ("Something that isn't a session is refused")
@@ -394,4 +402,114 @@ TEST_CASE ("Tracks can be reordered, and the order is saved with the session")
     CHECK (restored.getTrackOrder() == std::vector<int> { 1, 0, 2 });
     CHECK (restored.getTrackName (1) == "Bass");
     CHECK (restored.getTrackType (2) == TrackType::midi);
+}
+
+TEST_CASE ("A session with takes keeps its rate when the interface changes")
+{
+    Rig rig;
+    const auto file = writeRamp (rig.temp.directory, "take.wav", 48000);
+    REQUIRE (rig.engine.setClips (0, { makeClip (file, 0, 0, 1000) }).wasOk());
+
+    const auto saved = createSessionXml (rig.engine, rig.temp.directory);
+    REQUIRE (saved->getDoubleAttribute ("sampleRate") == 48000.0);
+
+    // Another app, such as GarageBand, has the interface at 44.1 kHz.
+    AudioEngine reopened;
+    reopened.setSessionDirectory (rig.temp.directory);
+    reopened.prepare (44100.0, blockSize);
+    applySessionXml (reopened, *saved, rig.temp.directory);
+
+    CHECK (reopened.getSessionSampleRate() == 48000.0);
+
+    const auto warning = reopened.getSampleRateWarning();
+    CHECK (warning.contains ("48 kHz"));
+    CHECK (warning.contains ("44.1 kHz"));
+    CHECK (warning.contains ("slow and flat"));
+
+    // Saving now mustn't mark the session as 44.1 kHz, or it would be wrong at 48 kHz too.
+    CHECK (createSessionXml (reopened, rig.temp.directory)->getDoubleAttribute ("sampleRate") == 48000.0);
+}
+
+TEST_CASE ("A session without audio takes follows the interface")
+{
+    Rig rig;
+    juce::XmlElement xml ("ROUGHTRACK_SESSION");
+    xml.setAttribute ("sampleRate", 44100.0);
+
+    rig.engine.removeAllTracks();
+    applySessionXml (rig.engine, xml, rig.temp.directory);
+
+    CHECK (rig.engine.getSessionSampleRate() == 0.0);
+    CHECK (rig.engine.getSampleRateWarning().isEmpty());
+    CHECK (createSessionXml (rig.engine, rig.temp.directory)->getDoubleAttribute ("sampleRate") == 48000.0);
+}
+
+TEST_CASE ("The first audio take sets the session's rate")
+{
+    Rig rig;
+    CHECK (rig.engine.getSessionSampleRate() == 0.0);
+
+    rig.engine.setTrackArmed (0, true);
+    rig.record (0.1f, 4);
+
+    CHECK (rig.engine.getSessionSampleRate() == 48000.0);
+}
+
+TEST_CASE ("Audio isn't recorded while the interface runs at another rate")
+{
+    Rig rig;
+    rig.engine.setSessionSampleRate (48000.0);
+    rig.engine.prepare (44100.0, blockSize);
+    rig.engine.setTrackArmed (0, true);
+
+    const auto takesBefore = rig.temp.directory.getNumberOfChildFiles (juce::File::findFiles, "*.wav");
+    const auto result = rig.engine.record();
+
+    CHECK (result.failed());
+    CHECK (result.getErrorMessage().contains ("Audio Settings"));
+    CHECK (rig.engine.getState() == TransportState::stopped);
+    CHECK (rig.temp.directory.getNumberOfChildFiles (juce::File::findFiles, "*.wav") == takesBefore);
+}
+
+TEST_CASE ("MIDI can still be recorded while the interface runs at another rate")
+{
+    Rig rig;
+    rig.engine.setSessionSampleRate (48000.0);
+    rig.engine.prepare (44100.0, blockSize);
+
+    // Notes are kept in beats, so they don't depend on the rate.
+    const auto keys = rig.engine.addTrack ("Keys", TrackType::midi);
+    rig.engine.setTrackArmed (keys, true);
+
+    CHECK (rig.engine.record().wasOk());
+    rig.engine.stop();
+}
+
+TEST_CASE ("Mixdowns wait until the interface matches the session's rate")
+{
+    Rig rig;
+    const auto file = writeRamp (rig.temp.directory, "take.wav", 48000);
+    REQUIRE (rig.engine.setClips (0, { makeClip (file, 0, 0, 1000) }).wasOk());
+
+    rig.engine.setSessionSampleRate (48000.0);
+    rig.engine.prepare (44100.0, blockSize);
+
+    const auto mix = rig.engine.bounce (rig.temp.directory.getChildFile ("mix.wav"), 0, 1000);
+    const auto stems = rig.engine.bounceStems (rig.temp.directory.getChildFile ("stems"), 0, 1000);
+
+    CHECK (mix.result.failed());
+    CHECK (stems.result.failed());
+    CHECK_FALSE (rig.temp.directory.getChildFile ("mix.wav").exists());
+
+    rig.engine.prepare (48000.0, blockSize);
+    CHECK (rig.engine.bounce (rig.temp.directory.getChildFile ("mix.wav"), 0, 1000).result.wasOk());
+}
+
+TEST_CASE ("Clearing the tracks forgets the session's rate")
+{
+    Rig rig;
+    rig.engine.setSessionSampleRate (48000.0);
+    rig.engine.removeAllTracks();
+
+    CHECK (rig.engine.getSessionSampleRate() == 0.0);
 }

@@ -15,7 +15,8 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
 {
     auto xml = std::make_unique<juce::XmlElement> ("ROUGHTRACK_SESSION");
     xml->setAttribute ("version", sessionVersion);
-    xml->setAttribute ("sampleRate", engine.getSampleRate());
+    // The takes' rate, which stays put whatever the device is doing.
+    xml->setAttribute ("sampleRate", engine.getSessionSampleRate() > 0.0 ? engine.getSessionSampleRate() : engine.getSampleRate());
     xml->setAttribute ("tempo", engine.getTempo());
     xml->setAttribute ("click", engine.isClickEnabled());
     xml->setAttribute ("master", (double) engine.getMasterGain());
@@ -211,11 +212,15 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
             engine.activateTrack (track, legacyTrackNames[(size_t) track]);
     }
 
+    // Only audio takes are tied to a rate. MIDI and drums follow the tempo, so a session
+    // without audio plays at whatever the device runs.
     const auto savedRate = xml.getDoubleAttribute ("sampleRate");
+    auto hasAudio = false;
 
-    if (savedRate > 0.0 && engine.getSampleRate() > 0.0 && ! juce::approximatelyEqual (savedRate, engine.getSampleRate()))
-        return juce::Result::fail ("This session was recorded at " + juce::String (savedRate) + " Hz, but the device is running at "
-                                   + juce::String (engine.getSampleRate()) + " Hz, so it will play at the wrong pitch.");
+    for (const auto track : engine.getTrackOrder())
+        hasAudio = hasAudio || (engine.getTrackType (track) == TrackType::audio && ! engine.getClips (track).empty());
+
+    engine.setSessionSampleRate (hasAudio && savedRate > 0.0 ? savedRate : 0.0);
 
     if (! problems.isEmpty())
         return juce::Result::fail ("Couldn't load: " + problems.joinIntoString (", "));

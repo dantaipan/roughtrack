@@ -1,5 +1,7 @@
 #include "roughtrack/AudioEngine.h"
 
+#include "roughtrack/AudioDevices.h"
+
 #include "roughtrack/Metronome.h"
 
 #include <algorithm>
@@ -474,6 +476,15 @@ juce::Result AudioEngine::record()
     if (calibrator != nullptr)
         return juce::Result::fail ("Latency calibration is running.");
 
+    // A take at another rate would never play right alongside the rest.
+    const auto recordsAudio = std::any_of (tracks.begin(), tracks.end(), [] (const Track& track)
+                                           {
+                                               return track.armed.load() && track.active.load() && track.type.load() == TrackType::audio;
+                                           });
+
+    if (const auto warning = getSampleRateWarning(); recordsAudio && warning.isNotEmpty())
+        return juce::Result::fail (warning);
+
     // Takes are created before the switch, because the audio thread waits while it happens.
     std::vector<std::pair<Track*, std::unique_ptr<TakeWriter>>> audioTakes;
     std::vector<Track*> midiTracks;
@@ -503,6 +514,9 @@ juce::Result AudioEngine::record()
 
     if (audioTakes.empty() && midiTracks.empty())
         return juce::Result::fail ("Arm a track first.");
+
+    if (! audioTakes.empty() && sessionSampleRate <= 0.0)
+        sessionSampleRate = currentSampleRate;
 
     // Punching in leaves playback running; only the armed tracks switch over.
     if (currentState == TransportState::stopped)
@@ -597,7 +611,20 @@ juce::Result AudioEngine::checkCanBounce (juce::int64 startSample, juce::int64 e
     if (endSample <= startSample)
         return juce::Result::fail ("There's nothing to mix down.");
 
+    if (const auto warning = getSampleRateWarning(); warning.isNotEmpty())
+        return juce::Result::fail (warning);
+
     return juce::Result::ok();
+}
+
+juce::String AudioEngine::getSampleRateWarning() const
+{
+    if (sessionSampleRate <= 0.0 || currentSampleRate <= 0.0 || juce::approximatelyEqual (sessionSampleRate, currentSampleRate))
+        return {};
+
+    return "This session is at " + juce::String (describeSampleRate (sessionSampleRate)) + " but the interface is running at " + juce::String (describeSampleRate (currentSampleRate))
+           + ", so takes play " + (currentSampleRate < sessionSampleRate ? "slow and flat" : "fast and sharp")
+           + ". Quit other audio apps, or choose " + juce::String (describeSampleRate (sessionSampleRate)) + " in Audio Settings.";
 }
 
 AudioEngine::BounceResult AudioEngine::bounce (const juce::File& file,
@@ -1051,6 +1078,9 @@ void AudioEngine::removeAllTracks()
 
     for (const auto track : order)
         removeTrack (track);
+
+    // With nothing recorded, whatever comes next sets its own rate.
+    sessionSampleRate = 0.0;
 }
 
 void AudioEngine::setTrackArmed (int track, bool shouldBeArmed)

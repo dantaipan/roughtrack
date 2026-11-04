@@ -137,6 +137,18 @@ public:
     TransportState getState() const noexcept { return state.load(); }
     double getSampleRate() const noexcept { return currentSampleRate; }
 
+    /** The rate the session's audio takes were recorded at, or 0 while it has none, when
+        it simply follows the device. The first audio take sets it. Takes aren't converted,
+        so while the device runs at another rate they play at the wrong speed and pitch.
+    */
+    void setSessionSampleRate (double rate) noexcept { sessionSampleRate = rate; }
+    double getSessionSampleRate() const noexcept { return sessionSampleRate; }
+
+    /** Empty while the device runs at the session's rate. Otherwise it says what's wrong
+        and what to do. Recording audio and mixing down are refused until it's empty.
+    */
+    juce::String getSampleRateWarning() const;
+
     /** Takes the next free track, or returns -1 if the transport is running or
         every track is in use. A track keeps its number for as long as it exists.
     */
@@ -386,6 +398,7 @@ private:
 
     juce::AudioBuffer<float> trackBuffer, mixBuffer, silence;
     double currentSampleRate = 0.0;
+    double sessionSampleRate = 0.0;
     int bufferCapacity = 0;
 
     std::atomic<double> tempo { 120.0 };

@@ -73,6 +73,26 @@ std::string preferredInputDevice (const std::string& outputDevice,
     return outputHasInputs ? outputDevice : currentInputDevice;
 }
 
+AudioDeviceChoice withSessionRate (AudioDeviceChoice chosen, double sessionRate)
+{
+    if (sessionRate > 0.0)
+        chosen.sampleRate = sessionRate;
+
+    return chosen;
+}
+
+AudioDeviceChoice wantedAudioDevice (const AudioDeviceChoice& chosen,
+                                     const AudioDeviceChoice& current,
+                                     double sessionRate,
+                                     const std::vector<std::string>& availableOutputDevices)
+{
+    const auto chosenIsThere = ! chosen.outputDevice.empty()
+                               && std::find (availableOutputDevices.begin(), availableOutputDevices.end(), chosen.outputDevice)
+                                      != availableOutputDevices.end();
+
+    return withSessionRate (chosenIsThere ? chosen : current, sessionRate);
+}
+
 bool shouldRestoreAudioDevice (const AudioDeviceChoice& chosen,
                                const AudioDeviceChoice& current,
                                const std::vector<std::string>& availableOutputDevices)
@@ -84,6 +104,16 @@ bool shouldRestoreAudioDevice (const AudioDeviceChoice& chosen,
     return current.outputDevice != chosen.outputDevice
            || (chosen.bufferSize > 0 && current.bufferSize != chosen.bufferSize)
            || (chosen.sampleRate > 0.0 && ! juce::approximatelyEqual (current.sampleRate, chosen.sampleRate));
+}
+
+std::string describeSampleRate (double rate)
+{
+    auto text = std::to_string (std::round (rate / 10.0) / 100.0);
+
+    while (text.find ('.') != std::string::npos && (text.back() == '0' || text.back() == '.'))
+        text.pop_back();
+
+    return text + " kHz";
 }
 
 double bufferLatencyMs (int bufferSizeSamples, double sampleRate)
