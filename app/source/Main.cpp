@@ -7,6 +7,8 @@ namespace
 {
 
 constexpr int snapshotDelayMs = 3000;
+constexpr int snapshotPollMs = 250;
+constexpr int snapshotLongestWaitMs = 20000;
 
 class MainWindow final : public juce::DocumentWindow
 {
@@ -134,6 +136,25 @@ private:
 
         juce::Timer::callAfterDelay (snapshotDelayMs, [this, picture, channelTrack, scale, consoleWindow]
         {
+            takeSnapshotOncePluginsLoad (picture, channelTrack, scale, consoleWindow, snapshotLongestWaitMs - snapshotDelayMs);
+        });
+    }
+
+    // Plugins load in the background, and a slow one would be missing from the picture.
+    void takeSnapshotOncePluginsLoad (juce::File picture, int channelTrack, float scale, bool consoleWindow, int msLeft)
+    {
+        auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent());
+
+        if (main != nullptr && main->isRestoringPlugins() && msLeft > 0)
+        {
+            juce::Timer::callAfterDelay (snapshotPollMs, [this, picture, channelTrack, scale, consoleWindow, msLeft]
+            {
+                takeSnapshotOncePluginsLoad (picture, channelTrack, scale, consoleWindow, msLeft - snapshotPollMs);
+            });
+            return;
+        }
+
+        {
             juce::Component* target = mainWindow.get();
 
             if (auto* content = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
@@ -154,7 +175,7 @@ private:
                 juce::PNGImageFormat().writeImageToStream (image, *stream);
 
             quit();
-        });
+        }
     }
 
     std::unique_ptr<ConsoleLookAndFeel> lookAndFeel;

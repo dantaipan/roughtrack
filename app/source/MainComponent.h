@@ -59,6 +59,9 @@ public:
     /** Snapshots change the view without it being remembered as the user's choice. */
     void setRemembersView (bool shouldRemember) noexcept { remembersView = shouldRemember; }
 
+    /** True while the session's plugins are still loading in the background. */
+    bool isRestoringPlugins() const noexcept { return numInsertsRestoring > 0; }
+
     /** Hides tooltips and passing messages, for a clean picture of the window. */
     void prepareForSnapshot();
 
