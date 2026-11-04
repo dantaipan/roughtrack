@@ -42,7 +42,20 @@ public:
 
     /** Matches the controls to the engine after a session loads. */
     void refreshFromEngine();
-    void updateMeter();
+
+    /** Picks up changes made elsewhere, such as in this track's other strip, leaving
+        alone any control that's being used right now. Cheap enough to call every frame.
+    */
+    void syncFromEngine();
+
+    /** Reads, and clears, the peak this track's meters show. A track has two strips, so
+        the peak is taken once and given to both.
+    */
+    float takePeak();
+    void updateMeter (float peak);
+
+    /** The shortest channel that still has a usable fader. */
+    static int getMinimumChannelHeight();
     void showInsert (int slot, const juce::String& pluginName, bool bypassed);
 
     void showChannelActive (bool hasAmp);

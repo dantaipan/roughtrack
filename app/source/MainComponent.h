@@ -2,7 +2,7 @@
 
 #include "AboutWindow.h"
 #include "ChannelWindow.h"
-#include "MasterStrip.h"
+#include "ConsolePanel.h"
 #include "PluginWindow.h"
 #include "TimelineView.h"
 #include "ToolbarButtons.h"
@@ -42,9 +42,22 @@ public:
     /** Opens a track's channel window and returns it. */
     juce::Component* showChannelWindow (int track);
 
-    /** Switches between the timeline and the full console. */
+    /** Shows or hides the console, under the timeline or in its own window. */
     void showConsole (bool shouldShow);
+
+    /** Moves the console between the panel under the timeline and its own window. */
+    void setConsoleInWindow (bool inWindow);
+
+    /** The console's own window, if it's been opened. */
+    juce::Component* getConsoleWindow() const noexcept { return consoleWindow.get(); }
+
     void showTuner (bool shouldShow);
+
+    /** Sets the main window's smallest size, which is taller while the console is docked. */
+    void updateWindowLimits();
+
+    /** Snapshots change the view without it being remembered as the user's choice. */
+    void setRemembersView (bool shouldRemember) noexcept { remembersView = shouldRemember; }
 
     /** Hides tooltips and passing messages, for a clean picture of the window. */
     void prepareForSnapshot();
@@ -76,6 +89,9 @@ private:
     juce::String latencyKey() const;
 
     void createStrip (int track);
+    void connectStrip (TrackStrip&, int track);
+    bool isConsoleDocked() const;
+    void resizeConsolePanel (int distanceDown);
     void addTrack (const juce::String& baseName);
     void loadDefaultInstrument (int track);
     void confirmDeleteTrack (int track);
@@ -85,7 +101,6 @@ private:
     void showTrackDrag (float y);
     void finishTrackDrag (int track, float y);
     void layoutTracks();
-    void layoutConsole();
     void updateTuner();
     juce::String nextTrackName (const juce::String& baseName) const;
 
@@ -143,9 +158,15 @@ private:
 
     std::array<std::unique_ptr<TrackStrip>, roughtrack::maxTracks> strips;
     juce::Component stripHolder;
-    juce::ScrollBar trackScrollBar { true }, consoleScrollBar { false };
+    juce::ScrollBar trackScrollBar { true };
     int trackScrollOffset = 0;
-    MasterStrip masterStrip { engine };
+    ConsolePanel consolePanel { engine };
+    PanelDivider panelDivider;
+    std::unique_ptr<ConsoleWindow> consoleWindow;
+    bool consoleInWindow = false;
+    bool remembersView = true;
+    int consolePanelHeight = 0;
+    int consolePanelHeightAtDragStart = 0;
     TunerRibbon tuner { engine };
     int numInputChannels = 0;
     std::unique_ptr<TimelineView> timeline;

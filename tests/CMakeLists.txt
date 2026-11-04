@@ -19,8 +19,10 @@ add_executable(roughtrack_tests
     TimelineViewTests.cpp
     TunerTests.cpp
     ../app/source/ConsoleLookAndFeel.cpp
+    ../app/source/ConsolePanel.cpp
     ../app/source/MasterStrip.cpp
     ../app/source/TimelineView.cpp
+    ../app/source/ToolbarButtons.cpp
     ../app/source/TrackStrip.cpp
     ../app/source/TunerRibbon.cpp
     ../app/source/VuMeter.cpp)

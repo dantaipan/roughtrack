@@ -23,8 +23,10 @@ constexpr int removeMenuId = 100003;
 
 constexpr int autosaveTicks = 2 * timerHz;
 constexpr int stripWidth = 300;
-constexpr int channelWidth = 104;
-constexpr int masterWidth = 124;
+constexpr int dividerHeight = 8;
+constexpr int defaultConsoleHeight = 470;
+constexpr int rowsShownWithConsole = 4;
+constexpr int screenMargin = 40;
 constexpr int tunerHeight = 72;
 constexpr int transportButtonWidth = 66;
 constexpr int toolbarGap = 4;
@@ -219,7 +221,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
     consoleButton.setClickingTogglesState (true);
     consoleButton.setColour (juce::TextButton::buttonOnColourId, console::amber);
-    consoleButton.setTooltip ("Switch between the timeline and the full console (X)");
+    consoleButton.setTooltip ("Show or hide the console (X)");
     consoleButton.onClick = [this] { showConsole (consoleButton.getToggleState()); };
 
     tempoSlider.setSliderStyle (juce::Slider::IncDecButtons);
@@ -249,16 +251,19 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     addAndMakeVisible (stripHolder);
     stripHolder.setInterceptsMouseClicks (false, true);
 
-    addChildComponent (masterStrip);
     addChildComponent (tuner);
+
+    consolePanel.onPopOutToggle = [this] { setConsoleInWindow (! consoleInWindow); };
+    consolePanel.onAddTrack = [this] (juce::Point<int> screenPosition) { showAddTrackMenu (screenPosition); };
+    addChildComponent (consolePanel);
+
+    panelDivider.onDragStart = [this] { consolePanelHeightAtDragStart = consolePanel.getHeight(); };
+    panelDivider.onDrag = [this] (int distanceDown) { resizeConsolePanel (distanceDown); };
+    addChildComponent (panelDivider);
 
     trackScrollBar.setAutoHide (false);
     trackScrollBar.addListener (this);
     addAndMakeVisible (trackScrollBar);
-
-    consoleScrollBar.setAutoHide (false);
-    consoleScrollBar.addListener (this);
-    addChildComponent (consoleScrollBar);
 
     ghostTrack.onClick = [this] (juce::Point<int> screenPosition) { showAddTrackMenu (screenPosition); };
     stripHolder.addAndMakeVisible (ghostTrack);
@@ -280,8 +285,28 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
 
     // Before setSize, so the first layout is already the saved view.
     consoleButton.setToggleState (settings->getBoolValue ("consoleView"), juce::dontSendNotification);
+    consoleInWindow = settings->getValue ("consoleMode") == "window";
+    consolePanelHeight = juce::jmax (ConsolePanel::getMinimumHeight(), settings->getIntValue ("consolePanelHeight", defaultConsoleHeight));
 
-    setSize (1400, transportHeight + TimelineView::rulerHeight + rowsShownAtStart * stripHeight + TimelineView::scrollBarHeight + statusHeight + 32);
+    const auto docked = isConsoleDocked();
+    const auto rows = docked ? rowsShownWithConsole : rowsShownAtStart;
+
+    auto height = transportHeight + TimelineView::rulerHeight + rows * stripHeight + TimelineView::scrollBarHeight + statusHeight + 32
+                + (docked ? dividerHeight + consolePanelHeight : 0);
+
+    // A laptop screen may not fit the timeline and the console at full size, so the timeline gives way.
+    if (const auto* display = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
+        height = juce::jmin (height, (int) display->userBounds.getHeight() - screenMargin);
+
+    setSize (1400, height);
+
+    // Its own window opens once the main one is up.
+    if (consoleButton.getToggleState() && consoleInWindow)
+        juce::MessageManager::callAsync ([safeThis = juce::Component::SafePointer (this)]
+                                         {
+                                             if (safeThis != nullptr)
+                                                 safeThis->showConsole (true);
+                                         });
 
     statusLabel.setText ("Waiting for microphone access", juce::dontSendNotification);
 
@@ -308,6 +333,13 @@ MainComponent::~MainComponent()
    #endif
 
     stopTimer();
+
+    if (consoleWindow != nullptr)
+    {
+        settings->setValue ("consoleWindowState", consoleWindow->getWindowStateAsString());
+        consoleWindow.reset();
+    }
+
     engine.stop();
     saveSession();
     saveInserts();
@@ -431,7 +463,13 @@ void MainComponent::closeChannelWindows()
 void MainComponent::refreshChannels()
 {
     for (const auto track : engine.getTrackOrder())
-        strips[(size_t) track]->showChannelActive (engine.getChannel (track).hasAmp());
+    {
+        const auto hasAmp = engine.getChannel (track).hasAmp();
+        strips[(size_t) track]->showChannelActive (hasAmp);
+
+        if (auto* channel = consolePanel.getChannel (track))
+            channel->showChannelActive (hasAmp);
+    }
 }
 
 void MainComponent::loadCurrentSession()
@@ -466,7 +504,7 @@ void MainComponent::loadCurrentSession()
 
     tempoSlider.setValue (engine.getTempo(), juce::dontSendNotification);
     clickButton.setToggleState (engine.isClickEnabled(), juce::dontSendNotification);
-    masterStrip.refreshFromEngine();
+    consolePanel.getMaster().refreshFromEngine();
     refreshChannels();
 
     if (auto* window = findParentComponentOfClass<juce::DocumentWindow>())
@@ -518,6 +556,7 @@ void MainComponent::openSession (const juce::File& directory)
     for (auto& strip : strips)
         strip.reset();
 
+    consolePanel.removeAllChannels();
     closeChannelWindows();
     engine.resetChannels();
 
@@ -1068,12 +1107,14 @@ void MainComponent::refreshInsert (int track, int slot)
 {
     auto* plugin = engine.getInsert (track, slot);
 
-    if (strips[(size_t) track] == nullptr)
-        return;
+    const auto name = plugin != nullptr ? plugin->getName() : juce::String();
+    const auto bypassed = engine.isInsertBypassed (track, slot);
 
-    strips[(size_t) track]->showInsert (slot,
-                                        plugin != nullptr ? plugin->getName() : juce::String(),
-                                        engine.isInsertBypassed (track, slot));
+    if (auto& strip = strips[(size_t) track])
+        strip->showInsert (slot, name, bypassed);
+
+    if (auto* channel = consolePanel.getChannel (track))
+        channel->showInsert (slot, name, bypassed);
 }
 
 void MainComponent::restoreInserts()
@@ -1171,9 +1212,14 @@ void MainComponent::deviceChanged()
     auto* device = deviceManager.getCurrentAudioDevice();
     numInputChannels = device != nullptr ? device->getActiveInputChannels().countNumberOfSetBits() : 0;
 
-    for (auto& strip : strips)
-        if (strip != nullptr)
+    for (int track = 0; track < roughtrack::maxTracks; ++track)
+    {
+        if (auto& strip = strips[(size_t) track])
             strip->setInputChannels (numInputChannels);
+
+        if (auto* channel = consolePanel.getChannel (track))
+            channel->setInputChannels (numInputChannels);
+    }
 
     // Pitch is worked out from the sample rate, so a new rate means starting again.
     if (tuner.isVisible() && device != nullptr)
@@ -1325,11 +1371,27 @@ void MainComponent::timerCallback()
     if (calibrating && (engine.isCalibrationFinished() || deviceManager.getCurrentAudioDevice() == nullptr))
         finishCalibration();
 
-    for (auto& strip : strips)
-        if (strip != nullptr)
-            strip->updateMeter();
+    // Each track has a row and a channel. Both follow the engine, so a change made in one
+    // shows in the other, and they share one reading of the peak.
+    for (int track = 0; track < roughtrack::maxTracks; ++track)
+    {
+        auto& strip = strips[(size_t) track];
 
-    masterStrip.updateMeter();
+        if (strip == nullptr)
+            continue;
+
+        const auto peak = strip->takePeak();
+        strip->syncFromEngine();
+        strip->updateMeter (peak);
+
+        if (auto* channel = consolePanel.getChannel (track))
+        {
+            channel->syncFromEngine();
+            channel->updateMeter (peak);
+        }
+    }
+
+    consolePanel.getMaster().updateMeter();
 
     if (tuner.isVisible())
         updateTuner();
@@ -1376,14 +1438,98 @@ void MainComponent::showTuner (bool shouldShow)
     }
 
     tuner.setVisible (shouldShow);
+    updateWindowLimits();
     resized();
 }
 
 void MainComponent::showConsole (bool shouldShow)
 {
     consoleButton.setToggleState (shouldShow, juce::dontSendNotification);
-    settings->setValue ("consoleView", shouldShow);
+
+    if (remembersView)
+        settings->setValue ("consoleView", shouldShow);
+
+    if (consoleInWindow)
+    {
+        if (shouldShow)
+        {
+            if (consoleWindow == nullptr)
+            {
+                consolePanel.setInWindow (true);
+                consolePanel.setVisible (true);
+                consoleWindow = std::make_unique<ConsoleWindow> (consolePanel);
+                consoleWindow->onClose = [this] { showConsole (false); };
+                consoleWindow->onKey = [this] (const juce::KeyPress& key) { return keyPressed (key); };
+
+                if (const auto state = settings->getValue ("consoleWindowState"); state.isNotEmpty())
+                    consoleWindow->restoreWindowStateFromString (state);
+            }
+
+            consoleWindow->setVisible (true);
+            consoleWindow->toFront (true);
+        }
+        else if (consoleWindow != nullptr)
+        {
+            settings->setValue ("consoleWindowState", consoleWindow->getWindowStateAsString());
+            consoleWindow->setVisible (false);
+        }
+    }
+
+    updateWindowLimits();
     resized();
+}
+
+void MainComponent::setConsoleInWindow (bool inWindow)
+{
+    if (inWindow == consoleInWindow)
+        return;
+
+    // Closing the window hands the panel back, and it docks here.
+    if (consoleWindow != nullptr)
+    {
+        settings->setValue ("consoleWindowState", consoleWindow->getWindowStateAsString());
+        consoleWindow.reset();
+    }
+
+    consoleInWindow = inWindow;
+
+    if (remembersView)
+        settings->setValue ("consoleMode", inWindow ? "window" : "docked");
+
+    if (! inWindow)
+    {
+        consolePanel.setInWindow (false);
+        addChildComponent (consolePanel);
+    }
+
+    showConsole (true);
+}
+
+bool MainComponent::isConsoleDocked() const
+{
+    return consoleButton.getToggleState() && ! consoleInWindow;
+}
+
+void MainComponent::resizeConsolePanel (int distanceDown)
+{
+    consolePanelHeight = consolePanelHeightAtDragStart - distanceDown;
+    resized();
+
+    // Kept as it came out, so dragging past a limit doesn't store a size that isn't shown.
+    consolePanelHeight = consolePanel.getHeight();
+    settings->setValue ("consolePanelHeight", consolePanelHeight);
+}
+
+void MainComponent::updateWindowLimits()
+{
+    auto minimumHeight = 480;
+
+    if (isConsoleDocked())
+        minimumHeight = 2 * windowMargin + transportHeight + (tuner.isVisible() ? tunerHeight : 0) + TimelineView::rulerHeight
+                      + 2 * stripHeight + TimelineView::scrollBarHeight + dividerHeight + ConsolePanel::getMinimumHeight() + statusHeight;
+
+    if (auto* window = findParentComponentOfClass<juce::ResizableWindow>())
+        window->setResizeLimits (getMinimumWidth(), minimumHeight, 16384, 16384);
 }
 
 void MainComponent::prepareForSnapshot()
@@ -1502,22 +1648,21 @@ void MainComponent::resized()
     statusLine.removeFromLeft (4);
     statusLabel.setBounds (statusLine);
 
-    const auto consoleShowing = consoleButton.getToggleState();
+    const auto docked = isConsoleDocked();
 
-    timeline->setVisible (! consoleShowing);
-    masterStrip.setVisible (consoleShowing);
+    if (! consoleInWindow)
+        consolePanel.setVisible (docked);
 
-    if (consoleShowing)
+    panelDivider.setVisible (docked);
+
+    if (docked)
     {
-        auto scrollBarArea = area.removeFromBottom (trackScrollBarWidth);
+        // The timeline keeps room for its ruler and two rows.
+        const auto smallestTimeline = TimelineView::rulerHeight + 2 * stripHeight + TimelineView::scrollBarHeight;
+        const auto tallest = juce::jmax (ConsolePanel::getMinimumHeight(), area.getHeight() - smallestTimeline - dividerHeight);
 
-        masterStrip.setBounds (area.removeFromRight (masterWidth));
-        area.removeFromRight (6);
-        consoleScrollBar.setBounds (scrollBarArea.withWidth (area.getWidth()));
-        stripHolder.setBounds (area);
-
-        layoutTracks();
-        return;
+        consolePanel.setBounds (area.removeFromBottom (juce::jlimit (ConsolePanel::getMinimumHeight(), tallest, consolePanelHeight)));
+        panelDivider.setBounds (area.removeFromBottom (dividerHeight));
     }
 
     auto stripArea = area.removeFromLeft (stripWidth);
@@ -1602,14 +1747,6 @@ void MainComponent::menuItemSelected (int menuItemId, int)
 
 void MainComponent::layoutTracks()
 {
-    if (consoleButton.getToggleState())
-    {
-        layoutConsole();
-        return;
-    }
-
-    consoleScrollBar.setVisible (false);
-
     const auto& order = engine.getTrackOrder();
     const auto totalHeight = (int) order.size() * stripHeight + stripHeight;
 
@@ -1630,30 +1767,8 @@ void MainComponent::layoutTracks()
 
     timeline->setVerticalOffset (trackScrollOffset);
     timeline->refresh();
-}
 
-void MainComponent::layoutConsole()
-{
-    trackScrollBar.setVisible (false);
-
-    const auto& order = engine.getTrackOrder();
-    const auto totalWidth = ((int) order.size() + 1) * channelWidth;
-
-    consoleScrollBar.setRangeLimits (0.0, juce::jmax (1, totalWidth));
-    consoleScrollBar.setCurrentRange (consoleScrollBar.getCurrentRangeStart(), juce::jmax (1, stripHolder.getWidth()));
-    consoleScrollBar.setVisible (totalWidth > stripHolder.getWidth());
-
-    const auto offset = juce::roundToInt (consoleScrollBar.getCurrentRangeStart());
-
-    for (size_t channel = 0; channel < order.size(); ++channel)
-    {
-        auto& strip = *strips[(size_t) order[channel]];
-
-        strip.setLayout (TrackStrip::Layout::channel);
-        strip.setBounds ((int) channel * channelWidth - offset, 0, channelWidth, stripHolder.getHeight());
-    }
-
-    ghostTrack.setBounds ((int) order.size() * channelWidth - offset, 0, channelWidth, stripHolder.getHeight());
+    consolePanel.layOutChannels();
 }
 
 void MainComponent::scrollBarMoved (juce::ScrollBar*, double)
@@ -1663,10 +1778,7 @@ void MainComponent::scrollBarMoved (juce::ScrollBar*, double)
 
 void MainComponent::mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
 {
-    if (consoleButton.getToggleState())
-        consoleScrollBar.setCurrentRangeStart (consoleScrollBar.getCurrentRangeStart() - (double) (wheel.deltaX + wheel.deltaY) * linesPerWheelStep);
-    else
-        trackScrollBar.setCurrentRangeStart (trackScrollBar.getCurrentRangeStart() - (double) wheel.deltaY * linesPerWheelStep);
+    trackScrollBar.setCurrentRangeStart (trackScrollBar.getCurrentRangeStart() - (double) wheel.deltaY * linesPerWheelStep);
 }
 
 void MainComponent::createStrip (int track)
@@ -1678,29 +1790,43 @@ void MainComponent::createStrip (int track)
         strip = std::make_unique<TrackStrip> (engine, track);
         stripHolder.addAndMakeVisible (*strip);
 
+        // Only rows are dragged to reorder; the console follows.
         strip->onDragMove = [this] (float y) { showTrackDrag (y); };
         strip->onDragEnd = [this, track] (float y) { finishTrackDrag (track, y); };
 
-        strip->onInsertClick = [this, track] (int slot, bool wantsMenu, juce::Component& button)
-        {
-            insertClicked (track, slot, wantsMenu, button);
-        };
-
-        strip->onChannelClick = [this, track] { openChannelWindow (track); };
-        strip->onDeleteRequest = [this, track] { confirmDeleteTrack (track); };
-        strip->onRenamed = [this, track]
-        {
-            if (channelWindows[(size_t) track] != nullptr)
-                channelWindows[(size_t) track]->setName (engine.getTrackName (track) + " Channel");
-
-            saveSession();
-        };
-
-        strip->setInputChannels (numInputChannels);
+        connectStrip (*strip, track);
     }
 
-    strip->refreshFromEngine();
-    strip->showChannelActive (engine.getChannel (track).hasAmp());
+    if (consolePanel.getChannel (track) == nullptr)
+        connectStrip (consolePanel.addChannel (track), track);
+
+    const auto hasAmp = engine.getChannel (track).hasAmp();
+
+    for (auto* each : { strip.get(), consolePanel.getChannel (track) })
+    {
+        each->refreshFromEngine();
+        each->showChannelActive (hasAmp);
+    }
+}
+
+void MainComponent::connectStrip (TrackStrip& strip, int track)
+{
+    strip.onInsertClick = [this, track] (int slot, bool wantsMenu, juce::Component& button)
+    {
+        insertClicked (track, slot, wantsMenu, button);
+    };
+
+    strip.onChannelClick = [this, track] { openChannelWindow (track); };
+    strip.onDeleteRequest = [this, track] { confirmDeleteTrack (track); };
+    strip.onRenamed = [this, track]
+    {
+        if (channelWindows[(size_t) track] != nullptr)
+            channelWindows[(size_t) track]->setName (engine.getTrackName (track) + " Channel");
+
+        saveSession();
+    };
+
+    strip.setInputChannels (numInputChannels);
 }
 
 juce::String MainComponent::nextTrackName (const juce::String& baseName) const
@@ -1836,6 +1962,7 @@ void MainComponent::deleteTrack (int track)
         return;
 
     strips[(size_t) track].reset();
+    consolePanel.removeChannel (track);
     undoManager.clearUndoHistory();
 
     layoutTracks();

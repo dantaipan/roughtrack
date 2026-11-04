@@ -19,6 +19,7 @@ constexpr int panHeight = 30;
 constexpr int faderWidth = 40;
 constexpr int faderTextHeight = 18;
 constexpr int invertWidth = 22;
+constexpr int minimumFaderHeight = 100;
 constexpr std::array<int, 7> faderMarks { 6, 0, -6, -12, -24, -36, -48 };
 
 } // namespace
@@ -278,6 +279,50 @@ void TrackStrip::refreshFromEngine()
     showEngineInput();
 }
 
+void TrackStrip::syncFromEngine()
+{
+    const auto settings = engine.getTrackSettings (index);
+
+    const auto sync = [] (juce::Button& button, bool isOn)
+    {
+        if (button.getToggleState() != isOn && ! button.isMouseButtonDown())
+            button.setToggleState (isOn, juce::dontSendNotification);
+    };
+
+    sync (armButton, engine.isTrackArmed (index));
+    sync (monitorButton, settings.monitoring);
+    sync (muteButton, settings.muted);
+    sync (soloButton, settings.soloed);
+    sync (invertButton, settings.inverted);
+
+    if (const auto name = engine.getTrackName (index); ! nameLabel.isBeingEdited() && nameLabel.getText() != name)
+        nameLabel.setText (name, juce::dontSendNotification);
+
+    const auto syncSlider = [] (juce::Slider& slider, double value, double tolerance)
+    {
+        if (! slider.isMouseButtonDown() && std::abs (slider.getValue() - value) > tolerance)
+            slider.setValue (value, juce::dontSendNotification);
+    };
+
+    syncSlider (gainSlider, juce::Decibels::gainToDecibels ((double) settings.gain, -60.0), 0.05);
+    syncSlider (panSlider, (double) settings.pan, 0.005);
+
+    const auto inputId = settings.inputChannels > 1 ? stereoInputId : settings.firstInput + 1;
+
+    if (! inputSelector.isPopupActive() && inputSelector.getSelectedId() != inputId && inputSelector.indexOfItemId (inputId) >= 0)
+        inputSelector.setSelectedId (inputId, juce::dontSendNotification);
+}
+
+int TrackStrip::getMinimumChannelHeight()
+{
+    // The same lines layOutChannel() stacks above the fader, plus the fader and its value.
+    const auto line = [] (int height) { return height + gap; };
+
+    return 2 * 6 + line (channelLineHeight) + line (vuHeight) + line (channelLineHeight)
+         + roughtrack::numInsertSlots * line (insertHeight) + line (channelLineHeight) + line (panHeight)
+         + 2 * line (channelLineHeight) + minimumFaderHeight + faderTextHeight;
+}
+
 void TrackStrip::applySelectedInput()
 {
     const auto id = inputSelector.getSelectedId();
@@ -290,10 +335,15 @@ void TrackStrip::applySelectedInput()
 
 // An armed track shows what's arriving at its input, because that's what's recorded,
 // whether or not it's being monitored.
-void TrackStrip::updateMeter()
+float TrackStrip::takePeak()
 {
     const auto showsInput = type == roughtrack::TrackType::audio && engine.isTrackArmed (index);
-    const auto peak = showsInput ? engine.takeTrackInputPeak (index) : engine.takeTrackPeak (index);
+    return showsInput ? engine.takeTrackInputPeak (index) : engine.takeTrackPeak (index);
+}
+
+void TrackStrip::updateMeter (float peak)
+{
+    const auto showsInput = type == roughtrack::TrackType::audio && engine.isTrackArmed (index);
 
     if (layout == Layout::channel)
     {

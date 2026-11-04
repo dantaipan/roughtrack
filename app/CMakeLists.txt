@@ -13,6 +13,7 @@ target_sources(RoughTrack PRIVATE
     source/AboutWindow.cpp
     source/ChannelWindow.cpp
     source/ConsoleLookAndFeel.cpp
+    source/ConsolePanel.cpp
     source/Main.cpp
     source/MainComponent.cpp
     source/MasterStrip.cpp

@@ -19,7 +19,10 @@ public:
         setUsingNativeTitleBar (true);
         setContentOwned (new MainComponent (session), true);
         setResizable (true, true);
-        setResizeLimits (MainComponent::getMinimumWidth(), 480, 16384, 16384);
+
+        if (auto* main = dynamic_cast<MainComponent*> (getContentComponent()))
+            main->updateWindowLimits();
+
         centreWithSize (getWidth(), getHeight());
         setVisible (true);
     }
@@ -96,8 +99,9 @@ private:
     }
 
     // Saves a picture of the real UI on a given session, so layout can be checked
-    // without a person at the screen: --snapshot <session folder> <png file> [track] [console] [timeline] [tuner] [2x]
-    // With a track, the picture is of that track's channel window. 2x saves it at Retina resolution.
+    // without a person at the screen: --snapshot <session folder> <png file> [track] [console] [console-window] [timeline] [tuner] [2x]
+    // With a track, the picture is of that track's channel window, and with console-window it's of the
+    // console in its own window. 2x saves it at Retina resolution. None of it changes the saved view.
     void startSnapshot()
     {
         const auto args = getCommandLineParameterArray();
@@ -109,15 +113,26 @@ private:
         const auto channelTrack = args[3].containsOnly ("0123456789") && args[3].isNotEmpty() ? args[3].getIntValue() : -1;
         auto* main = dynamic_cast<MainComponent*> (mainWindow->getContentComponent());
 
-        if (args.contains ("console") || args.contains ("timeline"))
-            main->showConsole (args.contains ("console"));
+        main->setRemembersView (false);
+
+        const auto consoleWindow = args.contains ("console-window");
+
+        if (consoleWindow || args.contains ("console"))
+        {
+            main->setConsoleInWindow (consoleWindow);
+            main->showConsole (true);
+        }
+        else if (args.contains ("timeline"))
+        {
+            main->showConsole (false);
+        }
 
         if (args.contains ("tuner"))
             main->showTuner (true);
 
         const auto scale = args.contains ("2x") ? 2.0f : 1.0f;
 
-        juce::Timer::callAfterDelay (snapshotDelayMs, [this, picture, channelTrack, scale]
+        juce::Timer::callAfterDelay (snapshotDelayMs, [this, picture, channelTrack, scale, consoleWindow]
         {
             juce::Component* target = mainWindow.get();
 
@@ -127,6 +142,8 @@ private:
 
                 if (channelTrack >= 0)
                     target = content->showChannelWindow (channelTrack);
+                else if (consoleWindow && content->getConsoleWindow() != nullptr)
+                    target = content->getConsoleWindow();
             }
 
             const auto image = target->createComponentSnapshot (target->getLocalBounds(), true, scale);

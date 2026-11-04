@@ -1,3 +1,4 @@
+#include "ConsolePanel.h"
 #include "MasterStrip.h"
 #include "TrackStrip.h"
 #include "TunerRibbon.h"
@@ -55,6 +56,33 @@ struct Rig
     TunerRibbon tuner { engine };
     juce::int64 played = 0;
 };
+
+template <typename ComponentType>
+ComponentType* findChild (juce::Component& parent, std::function<bool (ComponentType&)> matches)
+{
+    for (auto* child : parent.getChildren())
+        if (auto* typed = dynamic_cast<ComponentType*> (child); typed != nullptr && matches (*typed))
+            return typed;
+
+    return nullptr;
+}
+
+juce::Button& findButton (juce::Component& strip, const juce::String& text)
+{
+    auto* button = findChild<juce::Button> (strip, [&text] (juce::Button& b) { return b.getButtonText() == text; });
+    REQUIRE (button != nullptr);
+    return *button;
+}
+
+juce::Slider& findSlider (juce::Component& strip, bool rotary)
+{
+    auto* slider = findChild<juce::Slider> (strip, [rotary] (juce::Slider& s)
+                                            {
+                                                return (s.getSliderStyle() == juce::Slider::RotaryVerticalDrag) == rotary;
+                                            });
+    REQUIRE (slider != nullptr);
+    return *slider;
+}
 
 } // namespace
 
@@ -177,7 +205,7 @@ TEST_CASE ("Strips of every type survive both layouts and keep their settings")
         for (const auto layout : { TrackStrip::Layout::channel, TrackStrip::Layout::row, TrackStrip::Layout::channel })
         {
             strip.setLayout (layout);
-            strip.updateMeter();
+            strip.updateMeter (strip.takePeak());
             strip.createComponentSnapshot (strip.getLocalBounds());
         }
 
@@ -202,4 +230,81 @@ TEST_CASE ("A session's master level reaches the master fader")
     master.updateMeter();
 
     CHECK (engine.getMasterGain() == Approx (0.25f));
+}
+
+TEST_CASE ("A track's row and its console channel show the same settings")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+    engine.prepare (sampleRate, blockSize);
+    const auto track = engine.addTrack ("Guitar", TrackType::audio);
+
+    TrackStrip row (engine, track), channel (engine, track);
+    channel.setLayout (TrackStrip::Layout::channel);
+    row.setSize (300, 76);
+    channel.setSize (104, 500);
+
+    for (auto* strip : { &row, &channel })
+    {
+        strip->setInputChannels (2);
+        strip->refreshFromEngine();
+    }
+
+    // What one strip changes goes to the engine, and the other strip picks it up from there.
+    engine.setTrackMuted (track, true);
+    engine.setTrackSoloed (track, true);
+    engine.setTrackArmed (track, true);
+    engine.setTrackMonitoring (track, true);
+    engine.setTrackGain (track, juce::Decibels::decibelsToGain (-12.0f));
+    engine.setTrackPan (track, -0.5f);
+    engine.setTrackName (track, "Lead");
+
+    for (auto* strip : { &row, &channel })
+    {
+        strip->syncFromEngine();
+
+        CHECK (findButton (*strip, "M").getToggleState());
+        CHECK (findButton (*strip, "S").getToggleState());
+        CHECK (findButton (*strip, "Arm").getToggleState());
+        CHECK (findButton (*strip, "Mon").getToggleState());
+        CHECK (findSlider (*strip, false).getValue() == Approx (-12.0).margin (0.05));
+        CHECK (findSlider (*strip, true).getValue() == Approx (-0.5).margin (0.005));
+
+        auto* name = findChild<juce::Label> (*strip, [] (juce::Label&) { return true; });
+        REQUIRE (name != nullptr);
+        CHECK (name->getText() == "Lead");
+    }
+
+    // Syncing doesn't write back, so nothing it shows is changed by it.
+    CHECK (engine.getTrackSettings (track).gain == Approx (juce::Decibels::decibelsToGain (-12.0f)));
+}
+
+TEST_CASE ("The console lays out its channels in track order and fits a usable fader")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+    engine.prepare (sampleRate, blockSize);
+
+    const auto first = engine.addTrack ("One", TrackType::audio);
+    const auto second = engine.addTrack ("Two", TrackType::midi);
+    engine.moveTrack (second, 0);
+
+    ConsolePanel panel (engine);
+
+    for (const auto track : engine.getTrackOrder())
+        panel.addChannel (track);
+
+    panel.setSize (ConsolePanel::getWidthFor (2), ConsolePanel::getMinimumHeight());
+
+    REQUIRE (panel.getChannel (first) != nullptr);
+    REQUIRE (panel.getChannel (second) != nullptr);
+    CHECK (panel.getChannel (second)->getX() < panel.getChannel (first)->getX());
+    CHECK (panel.getChannel (first)->getHeight() >= TrackStrip::getMinimumChannelHeight());
+
+    panel.removeChannel (first);
+    CHECK (panel.getChannel (first) == nullptr);
+
+    panel.createComponentSnapshot (panel.getLocalBounds());
 }
