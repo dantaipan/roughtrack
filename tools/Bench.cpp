@@ -870,11 +870,21 @@ int runMidiCheck (const juce::StringArray& args)
         {
             juce::OwnedArray<juce::PluginDescription> found;
 
-            if (identifier.containsIgnoreCase (instrumentMatch))
+            // "sfizz-multi" lives in sfizz.vst3, so a name can also contain its file's name.
+            const auto fileName = juce::File::createFileWithoutCheckingPath (identifier).getFileNameWithoutExtension();
+
+            if (identifier.containsIgnoreCase (instrumentMatch) || (fileName.isNotEmpty() && instrumentMatch.containsIgnoreCase (fileName)))
                 format->findAllTypesForFile (found, identifier);
 
-            if (! found.isEmpty() && synth == nullptr)
-                synth = formats.createPluginInstance (*found[0], benchSampleRate, bufferSize, error);
+            // One file can hold several plugins, such as sfizz and sfizz-multi, so prefer an exact name.
+            const juce::PluginDescription* chosen = found.isEmpty() ? nullptr : found[0];
+
+            for (const auto* description : found)
+                if (description->name.equalsIgnoreCase (instrumentMatch))
+                    chosen = description;
+
+            if (chosen != nullptr && synth == nullptr)
+                synth = formats.createPluginInstance (*chosen, benchSampleRate, bufferSize, error);
         }
     }
 

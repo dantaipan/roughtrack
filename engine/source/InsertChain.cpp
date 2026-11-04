@@ -8,10 +8,8 @@ namespace
 
 constexpr int midiCapacity = 4096;
 
-void chooseLayout (juce::AudioPluginInstance& instance)
+void chooseMainLayout (juce::AudioPluginInstance& instance)
 {
-    instance.disableNonMainBuses();
-
     const auto mono = juce::AudioChannelSet::mono();
     const auto stereo = juce::AudioChannelSet::stereo();
 
@@ -28,6 +26,19 @@ void chooseLayout (juce::AudioPluginInstance& instance)
         if (instance.setBusesLayout (layout))
             return;
     }
+}
+
+void chooseLayout (juce::AudioPluginInstance& instance)
+{
+    instance.disableNonMainBuses();
+    chooseMainLayout (instance);
+
+    // Only the main output is used, but some plugins, such as sfizz-multi, write to every
+    // output whether it's enabled or not. A disabled one has no buffer, so they'd write
+    // through a null pointer. Enabled, each gets a real buffer that's then ignored.
+    for (int bus = 1; bus < instance.getBusCount (false); ++bus)
+        if (auto* output = instance.getBus (false, bus))
+            output->enable (true);
 }
 
 } // namespace

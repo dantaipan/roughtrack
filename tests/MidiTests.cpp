@@ -47,10 +47,22 @@ Clip makeMidiClip (const juce::File& file, juce::int64 start, juce::int64 length
 class TestSynth final : public juce::AudioPluginInstance
 {
 public:
-    TestSynth() : AudioPluginInstance (BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo())) {}
+    /** Extra stereo outputs start disabled, as sfizz-multi's do. */
+    explicit TestSynth (int extraOutputs = 0) : AudioPluginInstance (makeBuses (extraOutputs)) {}
+
+    static BusesProperties makeBuses (int extraOutputs)
+    {
+        auto buses = BusesProperties().withOutput ("Out", juce::AudioChannelSet::stereo());
+
+        for (int bus = 0; bus < extraOutputs; ++bus)
+            buses = buses.withOutput ("Out " + juce::String (bus + 2), juce::AudioChannelSet::stereo(), false);
+
+        return buses;
+    }
 
     void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi) override
     {
+        channelsProcessed = buffer.getNumChannels();
         buffer.clear();
 
         for (const auto metadata : midi)
@@ -124,6 +136,7 @@ public:
 
     std::vector<Received> received;
     juce::int64 samplesProcessed = 0;
+    int channelsProcessed = 0;
     int state = 0;
 };
 
@@ -1011,4 +1024,35 @@ TEST_CASE ("A quantize from the timeline is one undoable edit")
     CHECK (edits == 1);
     CHECK (editName == "Quantize");
     CHECK (engine.getClips (track)[0].file != file);
+}
+
+TEST_CASE ("Every output of an instrument gets a buffer and only the main one plays")
+{
+    // sfizz-multi writes to all sixteen outputs even when they're disabled, and a disabled
+    // VST3 output has no buffer, so it crashed the audio thread.
+    test::TempDirectory temp;
+    AudioEngine engine;
+    engine.setSessionDirectory (temp.directory);
+    engine.prepare (sampleRate, blockSize);
+    const auto track = engine.addTrack ("Keys", TrackType::midi);
+
+    auto instrument = std::make_unique<TestSynth> (7);
+    auto* synth = instrument.get();
+    REQUIRE (engine.setInsert (track, instrumentSlot, std::move (instrument)).wasOk());
+
+    for (int bus = 0; bus < synth->getBusCount (false); ++bus)
+        CHECK (synth->getBus (false, bus)->isEnabled());
+
+    CHECK (synth->getTotalNumOutputChannels() == 16);
+
+    engine.setTrackArmed (track, true);
+    engine.handleIncomingMidiMessage (nullptr, juce::MidiMessage::noteOn (1, 60, (juce::uint8) 100));
+
+    std::vector<float> input ((size_t) blockSize), left ((size_t) blockSize), right ((size_t) blockSize);
+    const float* inputs[] { input.data() };
+    float* outputs[] { left.data(), right.data() };
+    engine.processBlock (inputs, 1, outputs, 2, blockSize);
+
+    CHECK (synth->channelsProcessed == 16);
+    CHECK (*std::max_element (left.begin(), left.end()) > 0.0f);
 }
