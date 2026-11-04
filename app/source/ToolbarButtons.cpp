@@ -164,6 +164,14 @@ void MessageButton::paint (juce::Graphics& g)
     g.drawText (numUnseen > 9 ? juce::String ("9+") : juce::String (numUnseen), badge, juce::Justification::centred);
 }
 
+void MessageButton::markAllSeen()
+{
+    numUnseen = 0;
+    hasUnseenWarning = false;
+    updateTooltip();
+    repaint();
+}
+
 void MessageButton::mouseUp (const juce::MouseEvent& event)
 {
     if (! contains (event.getPosition()))

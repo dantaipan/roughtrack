@@ -96,8 +96,8 @@ private:
     }
 
     // Saves a picture of the real UI on a given session, so layout can be checked
-    // without a person at the screen: --snapshot <session folder> <png file> [track] [console] [timeline] [tuner]
-    // With a track, the picture is of that track's channel window.
+    // without a person at the screen: --snapshot <session folder> <png file> [track] [console] [timeline] [tuner] [2x]
+    // With a track, the picture is of that track's channel window. 2x saves it at Retina resolution.
     void startSnapshot()
     {
         const auto args = getCommandLineParameterArray();
@@ -115,15 +115,21 @@ private:
         if (args.contains ("tuner"))
             main->showTuner (true);
 
-        juce::Timer::callAfterDelay (snapshotDelayMs, [this, picture, channelTrack]
+        const auto scale = args.contains ("2x") ? 2.0f : 1.0f;
+
+        juce::Timer::callAfterDelay (snapshotDelayMs, [this, picture, channelTrack, scale]
         {
             juce::Component* target = mainWindow.get();
 
-            if (channelTrack >= 0)
-                if (auto* content = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
-                    target = content->showChannelWindow (channelTrack);
+            if (auto* content = dynamic_cast<MainComponent*> (mainWindow->getContentComponent()))
+            {
+                content->prepareForSnapshot();
 
-            const auto image = target->createComponentSnapshot (target->getLocalBounds());
+                if (channelTrack >= 0)
+                    target = content->showChannelWindow (channelTrack);
+            }
+
+            const auto image = target->createComponentSnapshot (target->getLocalBounds(), true, scale);
 
             picture.deleteFile();
 

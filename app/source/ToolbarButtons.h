@@ -56,6 +56,9 @@ public:
 
     void add (const juce::String& text, bool isWarning);
 
+    /** Clears the count of unseen messages, keeping the messages. */
+    void markAllSeen();
+
     void paint (juce::Graphics&) override;
     void mouseUp (const juce::MouseEvent&) override;
 

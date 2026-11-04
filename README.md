@@ -2,6 +2,10 @@
 
 A simplified multitrack DAW for macOS. Record anything through your audio interface, play MIDI instruments from a keyboard, lay down drums from real drummers' grooves, mix on a console with amps and effects, and bounce a mixdown or stems. Start with one track and add more as you need them, up to 24.
 
+**[Download RoughTrack for macOS](https://github.com/dantaipan/roughtrack/releases/latest)**: macOS 13 or later, Apple Silicon or Intel, signed and notarized.
+
+![The timeline, with guitars, keys and drums](docs/screenshots/timeline.png)
+
 ## Build
 
 Requires macOS 13+, Xcode, CMake and Ninja (`brew install cmake ninja`).
@@ -40,13 +44,19 @@ On the timeline, drag a clip to move it and drag its edges to trim it. Right-cli
 
 **Console** (or the X key) swaps the timeline for a full mixing desk: every track as a channel with its input, polarity, plugins, pan, Arm, Mon, mute, solo, fader and VU meter, plus the master fader. Beside the timeline, tracks shrink to a short row, and they're the same controls in both views.
 
+![The console](docs/screenshots/console.png)
+
 An armed track's meter shows what's arriving at its input, whether or not Mon is on, because that's what gets recorded. Set your level on the interface so the needle sits around 0, which is a sine peaking at -18 dBFS. The light on a meter means a level near full scale, and it stays on until you click it. **Ø** flips a track's polarity in the mixer and leaves the take as recorded.
 
 **Tuner** opens a strobe tuner across the top of the window. It reads the input of the first armed audio track, or of the first audio track if none is armed. The bands drift right when a string is sharp, left when it's flat, and stand still in tune. Play one string at a time: a chord has no single pitch, and an open E chord reads as E1.
 
+![The strobe tuner above the timeline](docs/screenshots/tuner.png)
+
 ## Amps and effects
 
 Each track's **Channel** button opens its amp, cabinet, EQ, compressor and sends. The signal runs amp and cabinet, plugin inserts, EQ, compressor, fader, then the sends. **Effects** holds the reverb and delay that every track shares. None of this adds latency, and takes always stay dry, so any of it can change after recording.
+
+<img src="docs/screenshots/channel.png" alt="A channel with an amp capture, cabinet, EQ, compressor and sends" width="480">
 
 RoughTrack doesn't ship amp captures. Load your own `.nam` files, including A2, and any `.wav` or `.aiff` cabinet IR. Sessions remember captures and IRs by their full path, so moving those files leaves a session reporting them as missing.
 
@@ -72,7 +82,7 @@ roughtrack_bench midi-check --instrument sfizz --state inserts.xml
 
 `scan-plugins` lists every installed VST3 and Audio Unit, each loaded in its own process. `plugin-check` runs third-party effects through the engine with no device. It loads them with default settings, so its timings don't show the cost of a loaded amp model. `plugin-window` opens an editor the way the app does and prints its native views. `midi-check` plays a connected keyboard through an instrument and prints the levels it reaches.
 
-`RoughTrack --snapshot <session folder> <png file> [console] [timeline] [tuner]` renders the real window on a session and quits, so the layout can be checked without anyone at the screen.
+`RoughTrack --snapshot <session folder> <png file> [track] [console] [timeline] [tuner] [2x]` renders the real window on a session and quits, so the layout can be checked without anyone at the screen. With a track number it renders that track's channel window instead, and `2x` saves at Retina resolution. The pictures in `docs/screenshots` were made this way.
 
 ## Drums
 

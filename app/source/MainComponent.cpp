@@ -1386,6 +1386,15 @@ void MainComponent::showConsole (bool shouldShow)
     resized();
 }
 
+void MainComponent::prepareForSnapshot()
+{
+    tooltips.hideTip();
+    tooltips.setMillisecondsBeforeTipAppears (std::numeric_limits<int>::max());
+    messageButton.markAllSeen();
+    showMessageUntil = 0;
+    updateStatus();
+}
+
 void MainComponent::updateStatus()
 {
     const auto sampleRate = engine.getSampleRate();

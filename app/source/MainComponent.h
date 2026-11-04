@@ -46,6 +46,9 @@ public:
     void showConsole (bool shouldShow);
     void showTuner (bool shouldShow);
 
+    /** Hides tooltips and passing messages, for a clean picture of the window. */
+    void prepareForSnapshot();
+
 private:
     juce::StringArray getMenuBarNames() override;
     juce::PopupMenu getMenuForIndex (int menuIndex, const juce::String& menuName) override;
