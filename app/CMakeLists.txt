@@ -24,6 +24,8 @@ target_sources(RoughTrack PRIVATE
     source/ToolbarButtons.cpp
     source/TrackStrip.cpp
     source/TunerRibbon.cpp
+    source/Updates.cpp
+    source/UpdateWindow.cpp
     source/VuMeter.cpp)
 
 target_compile_definitions(RoughTrack PRIVATE

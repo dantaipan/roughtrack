@@ -22,6 +22,10 @@ The app is built to `build/debug/app/RoughTrack_artefacts/Debug/RoughTrack.app`.
 
 `tools/make_release.sh` builds a universal app (Apple Silicon and Intel), signs it with your Developer ID, has Apple notarize it, and wraps it in a signed and notarized disk image in `dist/`. It needs a Developer ID Application certificate and notarytool credentials saved once with `xcrun notarytool store-credentials roughtrack-notary --apple-id <email> --team-id <team>`.
 
+## Updates
+
+About once a day, starting a few seconds after launch, RoughTrack asks GitHub whether a newer release is out. If one is, it shows that release's notes with **Download**, which opens the disk image in your browser, **Skip This Version** and **Later**. **RoughTrack → Check for Updates...** checks straight away, and **Settings → Check for Updates Automatically** turns the daily check off. The only thing sent is an ordinary request for the latest release.
+
 ## Sessions
 
 Each session is a folder in `~/Music/RoughTrack`, holding its takes, `session.xml` and `inserts.xml`. It saves automatically, and the folder can be moved.

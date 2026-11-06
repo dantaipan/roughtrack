@@ -46,6 +46,10 @@ constexpr int stemsMenuId = 100002;
 constexpr int audioSettingsMenuId = 1;
 constexpr int calibrateMenuId = 2;
 constexpr int aboutMenuId = 3;
+constexpr int checkUpdatesMenuId = 4;
+constexpr int autoUpdatesMenuId = 5;
+constexpr juce::uint32 firstUpdateCheckMs = 10 * 1000;
+constexpr juce::int64 updateIntervalMs = 24 * 60 * 60 * 1000;
 constexpr int transportLabelledWidth = 82;
 constexpr int transportIconWidth = 40;
 constexpr int windowMargin = 12;
@@ -156,7 +160,8 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     : settings (openSettings()),
       pluginLibrary (std::make_unique<roughtrack::PluginLibrary> (settings->getFile().getSiblingFile ("RoughTrack.plugins.xml"))),
       timeline (std::make_unique<TimelineView> (engine, stripHeight)),
-      sessionWasGiven (sessionToOpen != juce::File())
+      sessionWasGiven (sessionToOpen != juce::File()),
+      checksForUpdates (! juce::JUCEApplicationBase::getCommandLineParameters().contains ("--snapshot"))
 {
     currentSession = sessionWasGiven ? sessionToOpen
                                      : sessionsFolder().getChildFile (settings->getValue ("lastSession", defaultSessionName));
@@ -280,6 +285,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
    #if JUCE_MAC
     juce::PopupMenu appleMenu;
     appleMenu.addItem (aboutMenuId, "About RoughTrack");
+    appleMenu.addItem (checkUpdatesMenuId, "Check for Updates...");
     juce::MenuBarModel::setMacMainMenu (this, &appleMenu);
    #endif
 
@@ -388,6 +394,9 @@ void MainComponent::startAudio()
     enableMidiInputs();
     deviceChanged();
     startTimerHz (timerHz);
+
+    // Not straight away, so starting up and the audio aren't slowed by it.
+    nextUpdateCheck = juce::Time::getMillisecondCounter() + firstUpdateCheckMs;
 
     loadCurrentSession();
 
@@ -1415,6 +1424,17 @@ void MainComponent::finishCalibration()
 
 void MainComponent::timerCallback()
 {
+    // About once a day, counting from the last check even across launches.
+    if (checksForUpdates && juce::Time::getMillisecondCounter() >= nextUpdateCheck)
+    {
+        nextUpdateCheck = juce::Time::getMillisecondCounter() + (juce::uint32) updateIntervalMs;
+
+        const auto lastCheck = settings->getValue ("lastUpdateCheck").getLargeIntValue();
+
+        if (settings->getBoolValue ("checkForUpdates", true) && juce::Time::currentTimeMillis() - lastCheck >= updateIntervalMs)
+            checkForUpdates (false);
+    }
+
     if (recordingInProgress && engine.getState() == roughtrack::TransportState::stopped)
         recordingFinished();
 
@@ -1808,6 +1828,8 @@ juce::PopupMenu MainComponent::getMenuForIndex (int, const juce::String&)
     juce::PopupMenu menu;
     menu.addItem (audioSettingsMenuId, "Audio Settings...");
     menu.addItem (calibrateMenuId, "Calibrate Latency...");
+    menu.addSeparator();
+    menu.addItem (autoUpdatesMenuId, "Check for Updates Automatically", true, settings->getBoolValue ("checkForUpdates", true));
     return menu;
 }
 
@@ -1819,6 +1841,59 @@ void MainComponent::menuItemSelected (int menuItemId, int)
         confirmCalibration();
     else if (menuItemId == aboutMenuId)
         showAboutWindow (aboutWindow);
+    else if (menuItemId == checkUpdatesMenuId)
+        checkForUpdates (true);
+    else if (menuItemId == autoUpdatesMenuId)
+        settings->setValue ("checkForUpdates", ! settings->getBoolValue ("checkForUpdates", true));
+}
+
+void MainComponent::checkForUpdates (bool isManual)
+{
+    if (checkingForUpdates || (! checksForUpdates && ! isManual))
+        return;
+
+    checkingForUpdates = true;
+
+    // The request can take seconds, so it runs off the message thread and reports back.
+    juce::Thread::launch ([safeThis = juce::Component::SafePointer (this), isManual]
+                          {
+                              juce::String error;
+                              auto release = updates::fetchLatestRelease (ROUGHTRACK_VERSION, error);
+
+                              juce::MessageManager::callAsync ([safeThis, release, error, isManual]
+                                                               {
+                                                                   if (safeThis != nullptr)
+                                                                       safeThis->updateCheckFinished (release, error, isManual);
+                                                               });
+                          });
+}
+
+void MainComponent::updateCheckFinished (std::optional<updates::Release> release, const juce::String& error, bool isManual)
+{
+    checkingForUpdates = false;
+
+    if (release.has_value())
+        settings->setValue ("lastUpdateCheck", juce::String (juce::Time::currentTimeMillis()));
+
+    if (release.has_value() && updates::shouldOffer (*release, ROUGHTRACK_VERSION, settings->getValue ("skippedVersion"), isManual))
+    {
+        showUpdateWindow (updateWindow, *release, ROUGHTRACK_VERSION, [this, version = release->version]
+                          {
+                              settings->setValue ("skippedVersion", version);
+                          });
+        return;
+    }
+
+    // An automatic check stays quiet unless there's something new.
+    if (! isManual)
+        return;
+
+    juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                      .withIconType (release.has_value() ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon)
+                                      .withTitle (release.has_value() ? "You're up to date" : "Couldn't check for updates")
+                                      .withMessage (release.has_value() ? "RoughTrack " ROUGHTRACK_VERSION " is the latest version." : error)
+                                      .withButton ("OK"),
+                                  nullptr);
 }
 
 void MainComponent::layoutTracks()

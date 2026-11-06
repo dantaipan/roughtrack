@@ -20,6 +20,7 @@ add_executable(roughtrack_tests
     TakeRoundTripTests.cpp
     TimelineViewTests.cpp
     TunerTests.cpp
+    UpdateTests.cpp
     ../app/source/ConsoleLookAndFeel.cpp
     ../app/source/ConsolePanel.cpp
     ../app/source/GroovePreview.cpp
@@ -28,6 +29,7 @@ add_executable(roughtrack_tests
     ../app/source/ToolbarButtons.cpp
     ../app/source/TrackStrip.cpp
     ../app/source/TunerRibbon.cpp
+    ../app/source/Updates.cpp
     ../app/source/VuMeter.cpp)
 
 target_include_directories(roughtrack_tests PRIVATE ../app/source)

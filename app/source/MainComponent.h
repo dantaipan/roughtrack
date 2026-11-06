@@ -8,6 +8,7 @@
 #include "ToolbarButtons.h"
 #include "TrackStrip.h"
 #include "TunerRibbon.h"
+#include "UpdateWindow.h"
 
 #include "roughtrack/PluginLibrary.h"
 #include "roughtrack/Session.h"
@@ -112,6 +113,8 @@ private:
     void saveSession();
     void showSessionMenu();
     void showSnapMenu();
+    void checkForUpdates (bool isManual);
+    void updateCheckFinished (std::optional<updates::Release>, const juce::String& error, bool isManual);
     void setSnap (roughtrack::SnapGrid);
     void askForNewSession();
     void applyClipEdit (int track, const roughtrack::ClipList&, const juce::String& editName);
@@ -192,7 +195,10 @@ private:
 
     bool calibrating = false;
     bool latencyIsCalibrated = false;
-    juce::Component::SafePointer<juce::DialogWindow> audioSettingsWindow, aboutWindow;
+    juce::Component::SafePointer<juce::DialogWindow> audioSettingsWindow, aboutWindow, updateWindow;
+    bool checkingForUpdates = false;
+    const bool checksForUpdates; // Never in snapshot runs, which must stay offline.
+    juce::uint32 nextUpdateCheck = 0;
     juce::String lastAudioRestoreFrom, lastRateWarning;
     std::unique_ptr<juce::FileChooser> mixdownChooser;
 };
