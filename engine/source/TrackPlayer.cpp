@@ -95,16 +95,18 @@ bool TrackPlayer::setClips (const ClipList& newClips)
     return allFound;
 }
 
-void TrackPlayer::prepareToPlay (juce::int64 timelinePosition)
+void TrackPlayer::prepareToPlay (juce::int64 timelinePosition, juce::Range<juce::int64> newCycle, int maxPrefill)
 {
     thread.removeTimeSliceClient (this);
 
     fifo.reset();
     samplesToSkip = 0;
     readPosition = timelinePosition;
+    cycle = newCycle;
+    samplesSinceCycleStart = edgeFadeSamples;
 
     if (! clips.empty())
-        fillBuffer();
+        fillBuffer (maxPrefill);
 
     thread.addTimeSliceClient (this);
 }
@@ -149,12 +151,14 @@ int TrackPlayer::useTimeSlice()
     return diskPollMs;
 }
 
-void TrackPlayer::fillBuffer()
+void TrackPlayer::fillBuffer (int maxSamples)
 {
-    readPosition += samplesToSkip.exchange (0);
+    advance (samplesToSkip.exchange (0));
+
+    const auto space = maxSamples >= 0 ? juce::jmin (maxSamples, fifo.getFreeSpace()) : fifo.getFreeSpace();
 
     int start1, size1, start2, size2;
-    fifo.prepareToWrite (fifo.getFreeSpace(), start1, size1, start2, size2);
+    fifo.prepareToWrite (space, start1, size1, start2, size2);
 
     render (start1, size1);
     render (start2, size2);
@@ -169,7 +173,12 @@ void TrackPlayer::render (int ringStart, int numSamples)
         auto* left = ring.getWritePointer (0, ringStart + done);
         auto* right = ring.getWritePointer (1, ringStart + done);
 
-        const auto segment = findSegment (clips, readPosition, numSamples - done);
+        // A cycle's end is a seam, read up to and then jumped back from.
+        const auto beforeCycleEnd = ! cycle.isEmpty() && readPosition < cycle.getEnd();
+        const auto wanted = beforeCycleEnd ? (int) juce::jmin<juce::int64> (numSamples - done, cycle.getEnd() - readPosition)
+                                           : numSamples - done;
+
+        const auto segment = findSegment (clips, readPosition, wanted);
         const auto length = (int) segment.length;
 
         std::shared_ptr<juce::AudioFormatReader> reader;
@@ -201,9 +210,41 @@ void TrackPlayer::render (int ringStart, int numSamples)
             juce::FloatVectorOperations::clear (right, length);
         }
 
-        readPosition += length;
+        // Short fades either side of the seam keep the jump back from clicking.
+        if (beforeCycleEnd)
+        {
+            for (int i = 0; i < length; ++i)
+            {
+                const auto untilEnd = cycle.getEnd() - (readPosition + i);
+                const auto sinceStart = samplesSinceCycleStart + i;
+                const auto fromSeam = juce::jmin<juce::int64> (untilEnd, sinceStart + 1);
+
+                if (fromSeam < edgeFadeSamples)
+                {
+                    const auto gain = (float) fromSeam / (float) edgeFadeSamples;
+                    left[i] *= gain;
+                    right[i] *= gain;
+                }
+            }
+        }
+
+        advance (length);
         done += length;
     }
+}
+
+void TrackPlayer::advance (juce::int64 numSamples)
+{
+    const auto before = readPosition;
+    readPosition += numSamples;
+    samplesSinceCycleStart += numSamples;
+
+    if (cycle.isEmpty() || before >= cycle.getEnd() || readPosition < cycle.getEnd())
+        return;
+
+    // Skipping past a missed stretch can run past the end more than once.
+    readPosition = cycle.getStart() + (readPosition - cycle.getEnd()) % cycle.getLength();
+    samplesSinceCycleStart = readPosition - cycle.getStart();
 }
 
 } // namespace roughtrack

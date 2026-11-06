@@ -3,6 +3,7 @@
 #include "AboutWindow.h"
 #include "ChannelWindow.h"
 #include "ConsolePanel.h"
+#include "ControllerInput.h"
 #include "PluginWindow.h"
 #include "TimelineView.h"
 #include "ToolbarButtons.h"
@@ -78,6 +79,13 @@ private:
     void startAudio();
     void useInterfaceInputs();
     void enableMidiInputs();
+    void controlCommand (roughtrack::ControlEvent);
+    void stripCommand (roughtrack::ControlEvent);
+    void setCycleEnabled (bool);
+    std::vector<bool> armedByLane() const;
+    void moveArm (int direction);
+    void showControllerLights();
+    void chooseController (const juce::String& portName);
     juce::String deviceDescription() const;
     void deviceChanged();
     void updateStatus();
@@ -145,6 +153,24 @@ private:
     juce::AudioDeviceManager deviceManager;
     juce::MidiDeviceListConnection midiDevices;
     juce::String midiInputNames;
+
+    ControllerInput controllerInput {
+        [this] (juce::MidiInput* source, const juce::MidiMessage& message) { engine.handleIncomingMidiMessage (source, message); },
+        [safeThis = juce::Component::SafePointer (this)] (roughtrack::ControlEvent command)
+        {
+            juce::MessageManager::callAsync ([safeThis, command]
+                                             {
+                                                 if (safeThis != nullptr)
+                                                     safeThis->controlCommand (command);
+                                             });
+        }
+    };
+
+    juce::String controllerName;
+    juce::StringArray controllerMenuPorts;
+    std::unique_ptr<juce::MidiOutput> controllerOutput;
+    std::optional<std::array<bool, 128>> litNotes;
+    int controllerBank = 0;
     std::unique_ptr<juce::PropertiesFile> settings;
     std::unique_ptr<roughtrack::PluginLibrary> pluginLibrary;
     juce::TooltipWindow tooltips { this };
@@ -152,7 +178,7 @@ private:
     TransportButton returnButton { "Return", TransportButton::Icon::returnToStart }, playButton { "Play", TransportButton::Icon::play },
         stopButton { "Stop", TransportButton::Icon::stop }, recordButton { "Record", TransportButton::Icon::record };
     juce::TextButton sessionButton { "Session" }, effectsButton { "Effects" }, undoButton { "Undo" }, redoButton { "Redo" };
-    juce::TextButton clickButton { "Click" }, snapButton;
+    juce::TextButton clickButton { "Click" }, loopButton { "Loop" }, snapButton;
     GhostTrack ghostTrack;
     juce::Label dropIndicator;
     juce::TextButton tunerButton { "Tuner" }, consoleButton { "Console" };

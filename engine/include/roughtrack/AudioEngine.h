@@ -101,6 +101,19 @@ public:
     juce::Result record();
     void stop();
 
+    /** The stretch playback goes round, in samples, when the cycle is on. Playback that
+        reaches its end from before it jumps back to its start, and Play from past its end
+        starts at its start. Recording plays straight through. Changes take effect straight
+        away, even while playing.
+    */
+    void setCycleRange (juce::Range<juce::int64>);
+    juce::Range<juce::int64> getCycleRange() const noexcept;
+    void setCycleEnabled (bool);
+    bool isCycleEnabled() const noexcept { return cycleEnabled.load(); }
+
+    /** Cycles shorter than this are ignored, so a stray click can't trap the playhead. */
+    static constexpr juce::int64 minimumCycleSamples = 4800;
+
     /** Where the last clip or drum part ends, in samples, counting loops. */
     juce::int64 getSessionLength() const;
 
@@ -389,7 +402,10 @@ private:
     void handleAsyncUpdate() override;
     void setState (TransportState newState);
     void finishTakes();
-    void prepareTracksToPlay();
+    void prepareTracksToPlay (juce::Range<juce::int64> cycle = {});
+    juce::Range<juce::int64> cycleToPlay() const noexcept;
+    void restartCycle();
+    void renderAcrossCycle (const float* const* inputs, int numInputs, float* const* outputs, int numOutputs, int numSamples) noexcept;
     juce::Result loadDrumKit();
 
     void processTrack (Track&, const float* const* inputs, int numInputs, int numSamples, bool anySoloed) noexcept;
@@ -426,6 +442,12 @@ private:
     std::atomic<bool> bouncing { false };
     StemCapture* stemCapture = nullptr;
     std::atomic<juce::int64> position { 0 };
+
+    // What the player asked for, and what the tracks' read-ahead was prepared with. The
+    // second only changes under the state lock, so the audio thread and the disk always agree.
+    std::atomic<juce::int64> cycleStart { 0 }, cycleEnd { 0 };
+    std::atomic<bool> cycleEnabled { false };
+    std::atomic<juce::int64> activeCycleStart { 0 }, activeCycleEnd { 0 };
     juce::int64 recordingStart = 0;
     int dropoutsAtRecordingStart = 0;
     juce::int64 droppedSamplesAtRecordingStart = 0;

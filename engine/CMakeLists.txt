@@ -4,6 +4,7 @@ add_library(roughtrack_engine STATIC
     source/AudioEngine.cpp
     source/ChannelStrip.cpp
     source/Clip.cpp
+    source/ControlSurface.cpp
     source/DropoutDetector.cpp
     source/DrumKit.cpp
     source/Drums.cpp

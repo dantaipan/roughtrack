@@ -37,6 +37,9 @@ public:
     std::function<void (int track, const roughtrack::ClipList&, const juce::String& editName)> onEdit;
     std::function<void (int track, const roughtrack::DrumPartList&, const juce::String& editName)> onDrumEdit;
     std::function<void (juce::int64 position)> onSeek;
+
+    /** A loop range marked or adjusted in the ruler, in samples, when the drag ends. */
+    std::function<void (juce::Range<juce::int64>)> onCycleEdit;
     std::function<void (const juce::String&)> onMessage;
     std::function<void (float pixels)> onScrollLanes;
 
@@ -136,6 +139,24 @@ private:
 
     juce::AudioThumbnail& thumbnailFor (const juce::File&);
     void paintRuler (juce::Graphics&);
+    void paintCycle (juce::Graphics&);
+
+    /** What a press on the bar numbers does: marks a new range, or takes hold of the range. */
+    enum class CycleDrag
+    {
+        none,
+        pending,
+        create,
+        start,
+        end,
+        move
+    };
+
+    CycleDrag cycleZoneAt (juce::Point<float>) const;
+    juce::Range<juce::int64> cycleToShow() const;
+    juce::int64 snapSample (juce::int64 sample, const juce::ModifierKeys&) const;
+    juce::int64 shortestCycle (const juce::ModifierKeys&) const;
+    void dragCycle (const juce::MouseEvent&);
     void paintClip (juce::Graphics&, int track, const roughtrack::Clip&, juce::int64 loopEnd, bool selected);
     void paintClipBody (juce::Graphics&, int track, const roughtrack::Clip&, bool isRepeat);
     void paintNotes (juce::Graphics&, const roughtrack::Clip&, juce::Rectangle<float> bounds, float alpha = 1.0f);
@@ -177,4 +198,8 @@ private:
     roughtrack::ClipList dragOriginal, dragPreview;
     roughtrack::DrumPartList partsOriginal, partsPreview;
     bool isDragging = false;
+
+    CycleDrag cycleDrag = CycleDrag::none;
+    juce::Range<juce::int64> cycleOriginal, cyclePreview;
+    juce::int64 cycleAnchor = 0;
 };

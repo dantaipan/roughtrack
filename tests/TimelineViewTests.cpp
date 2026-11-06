@@ -46,6 +46,7 @@ struct Rig
         };
 
         view.onSeek = [this] (juce::int64 position) { seeks.push_back (position); };
+        view.onCycleEdit = [this] (juce::Range<juce::int64> range) { cycleEdits.push_back (range); };
         view.onMessage = [this] (const juce::String& message) { lastMessage = message; };
     }
 
@@ -75,7 +76,14 @@ struct Rig
     juce::String lastEdit, lastMessage;
     int numEdits = 0;
     std::vector<juce::int64> seeks;
+    std::vector<juce::Range<juce::int64>> cycleEdits;
 };
+
+/** Halfway down the bar numbers, under the time in the ruler. */
+constexpr float barNumbersY = (float) TimelineView::rulerHeight * 0.75f;
+
+/** At 120 bpm and 40 pixels a second, a bar is 96000 samples and 80 pixels. */
+constexpr juce::int64 bar = 96000;
 
 } // namespace
 
@@ -444,4 +452,84 @@ TEST_CASE ("Dragging a loop's end snaps where the repeats stop")
 
     CHECK (baked.back().timelineEnd() == 480000);
     CHECK_FALSE (baked.front().loopsToNext);
+}
+
+TEST_CASE ("Dragging along the bar numbers marks a loop on whole bars")
+{
+    Rig rig;
+    rig.view.setSnap (SnapGrid::bar);
+
+    rig.drag ({ 100.0f, barNumbersY }, { 250.0f, barNumbersY });
+
+    REQUIRE (rig.cycleEdits.size() == 1);
+    CHECK (rig.cycleEdits[0] == juce::Range<juce::int64> { bar, 3 * bar });
+    CHECK (rig.seeks.empty());
+
+    // Dragging backwards marks it just the same.
+    rig.drag ({ 250.0f, barNumbersY }, { 100.0f, barNumbersY });
+    CHECK (rig.cycleEdits.back() == juce::Range<juce::int64> { bar, 3 * bar });
+}
+
+TEST_CASE ("Clicking the bar numbers moves the playhead instead")
+{
+    Rig rig;
+    rig.drag ({ 100.0f, barNumbersY }, { 101.0f, barNumbersY });
+
+    CHECK (rig.cycleEdits.empty());
+    REQUIRE (rig.seeks.size() == 1);
+    CHECK (rig.seeks[0] == 100 * samplesPerPixel);
+}
+
+TEST_CASE ("A loop's edges and middle can be dragged")
+{
+    Rig rig;
+    rig.view.setSnap (SnapGrid::bar);
+    rig.engine.setCycleRange ({ bar, 3 * bar });
+
+    SECTION ("its end")
+    {
+        rig.drag ({ 240.0f, barNumbersY }, { 330.0f, barNumbersY });
+        REQUIRE (rig.cycleEdits.size() == 1);
+        CHECK (rig.cycleEdits[0] == juce::Range<juce::int64> { bar, 4 * bar });
+    }
+
+    SECTION ("its start, which stops a bar short of the end")
+    {
+        rig.drag ({ 80.0f, barNumbersY }, { 300.0f, barNumbersY });
+        REQUIRE (rig.cycleEdits.size() == 1);
+        CHECK (rig.cycleEdits[0] == juce::Range<juce::int64> { 2 * bar, 3 * bar });
+    }
+
+    SECTION ("the whole loop")
+    {
+        rig.drag ({ 160.0f, barNumbersY }, { 210.0f, barNumbersY });
+        REQUIRE (rig.cycleEdits.size() == 1);
+        CHECK (rig.cycleEdits[0] == juce::Range<juce::int64> { 2 * bar, 4 * bar });
+    }
+
+    SECTION ("but a click in the middle just moves the playhead")
+    {
+        rig.drag ({ 160.0f, barNumbersY }, { 160.0f, barNumbersY });
+        CHECK (rig.cycleEdits.empty());
+        CHECK (rig.seeks.size() == 1);
+    }
+}
+
+TEST_CASE ("Without snapping a loop is marked anywhere, but never too short to hear")
+{
+    Rig rig;
+    rig.drag ({ 100.0f, barNumbersY }, { 104.0f, barNumbersY });
+
+    REQUIRE (rig.cycleEdits.size() == 1);
+    CHECK (rig.cycleEdits[0].getStart() == 100 * samplesPerPixel);
+    CHECK (rig.cycleEdits[0].getLength() == AudioEngine::minimumCycleSamples);
+}
+
+TEST_CASE ("Clicking the time above the bar numbers moves the playhead at once")
+{
+    Rig rig;
+    rig.view.mouseDown (rig.event ({ 120.0f, 5.0f }, { 120.0f, 5.0f }, juce::ModifierKeys::leftButtonModifier));
+
+    REQUIRE (rig.seeks.size() == 1);
+    CHECK (rig.seeks[0] == 120 * samplesPerPixel);
 }

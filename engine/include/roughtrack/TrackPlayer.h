@@ -31,8 +31,12 @@ public:
     /** Returns false if any clip's file can't be read. That clip plays as silence. */
     bool setClips (const ClipList&);
 
-    /** Fills the read-ahead buffer so playback can start immediately. */
-    void prepareToPlay (juce::int64 timelinePosition);
+    /** Fills the read-ahead buffer so playback can start immediately. With a cycle, reading
+        jumps back to its start on reaching its end, if it reaches the end from before it,
+        so the buffer always holds what plays next. maxPrefill limits how much is read
+        now, leaving the rest to the disk thread.
+    */
+    void prepareToPlay (juce::int64 timelinePosition, juce::Range<juce::int64> cycle = {}, int maxPrefill = -1);
 
     /** Copies the next samples into both channels, or silence if there are no clips. */
     void pull (float* left, float* right, int numSamples) noexcept;
@@ -44,8 +48,9 @@ public:
 
 private:
     int useTimeSlice() override;
-    void fillBuffer();
+    void fillBuffer (int maxSamples = -1);
     void render (int ringStart, int numSamples);
+    void advance (juce::int64 numSamples);
 
     juce::TimeSliceThread& thread;
     juce::AudioFormatManager& formatManager;
@@ -53,6 +58,8 @@ private:
     ClipList clips;
     std::map<juce::File, std::shared_ptr<juce::AudioFormatReader>> readers;
     juce::int64 readPosition = 0;
+    juce::Range<juce::int64> cycle;
+    juce::int64 samplesSinceCycleStart = 0;
 
     juce::AudioBuffer<float> ring;
     juce::AbstractFifo fifo;

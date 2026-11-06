@@ -48,6 +48,8 @@ constexpr int calibrateMenuId = 2;
 constexpr int aboutMenuId = 3;
 constexpr int checkUpdatesMenuId = 4;
 constexpr int autoUpdatesMenuId = 5;
+constexpr int noControllerMenuId = 6;
+constexpr int firstControllerMenuId = 100;
 constexpr juce::uint32 firstUpdateCheckMs = 10 * 1000;
 constexpr juce::int64 updateIntervalMs = 24 * 60 * 60 * 1000;
 constexpr int transportLabelledWidth = 82;
@@ -172,6 +174,13 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     timeline->onDrumEdit = [this] (int track, const roughtrack::DrumPartList& parts, const juce::String& name) { applyDrumEdit (track, parts, name); };
     timeline->onEdit = [this] (int track, const roughtrack::ClipList& clips, const juce::String& name) { applyClipEdit (track, clips, name); };
     timeline->onMessage = [this] (const juce::String& message) { showPluginMessage (message); };
+    timeline->onCycleEdit = [this] (juce::Range<juce::int64> range)
+    {
+        // Marking a range is asking to go round it.
+        engine.setCycleRange (range);
+        setCycleEnabled (true);
+    };
+
     timeline->onSeek = [this] (juce::int64 position)
     {
         if (engine.getState() == roughtrack::TransportState::stopped)
@@ -219,6 +228,11 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     clickButton.setColour (juce::TextButton::buttonOnColourId, juce::Colours::orange);
     clickButton.onClick = [this] { engine.setClickEnabled (clickButton.getToggleState()); };
 
+    loopButton.setClickingTogglesState (true);
+    loopButton.setColour (juce::TextButton::buttonOnColourId, juce::Colours::orange);
+    loopButton.setTooltip ("Play round and round the range marked in the ruler. Drag along the bar numbers to mark it (L).");
+    loopButton.onClick = [this] { setCycleEnabled (loopButton.getToggleState()); };
+
     snapButton.setTooltip ("What clips land on when moved, trimmed or split. Hold Command while dragging to place freely.");
     snapButton.onClick = [this] { showSnapMenu(); };
     setSnap (roughtrack::SnapGrid::bar);
@@ -246,7 +260,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     };
 
     for (auto* component : std::initializer_list<juce::Component*> { &returnButton, &playButton, &recordButton, &stopButton,
-                                                                     &clickButton, &snapButton, &tempoSlider, &positionLabel,
+                                                                     &clickButton, &loopButton, &snapButton, &tempoSlider, &positionLabel,
                                                                      &statusLabel,
                                                                      &messageButton, &sessionButton, &effectsButton, &undoButton, &redoButton,
                                                                      &tunerButton, &consoleButton })
@@ -361,7 +375,8 @@ MainComponent::~MainComponent()
             window.reset();
 
     midiDevices = {};
-    deviceManager.removeMidiInputDeviceCallback ({}, &engine);
+    deviceManager.removeMidiInputDeviceCallback ({}, &controllerInput);
+    controllerOutput.reset();
     deviceManager.removeChangeListener (this);
     deviceManager.removeAudioCallback (&engine);
     deviceManager.closeAudioDevice();
@@ -389,7 +404,7 @@ void MainComponent::startAudio()
     deviceManager.addChangeListener (this);
 
     // Keyboards can come and go while the app runs.
-    deviceManager.addMidiInputDeviceCallback ({}, &engine);
+    deviceManager.addMidiInputDeviceCallback ({}, &controllerInput);
     midiDevices = juce::MidiDeviceListConnection::make ([this] { enableMidiInputs(); });
     enableMidiInputs();
     deviceChanged();
@@ -407,14 +422,224 @@ void MainComponent::startAudio()
 void MainComponent::enableMidiInputs()
 {
     juce::StringArray names;
+    const auto devices = juce::MidiInput::getAvailableDevices();
 
-    for (const auto& device : juce::MidiInput::getAvailableDevices())
+    // A port chosen in the menu is kept by name, which survives replugging. With none
+    // chosen, the port a keyboard sends its DAW controls on is picked by its name.
+    const auto hasChoice = settings->containsKey ("controllerPort");
+    const auto chosen = settings->getValue ("controllerPort");
+    juce::MidiDeviceInfo controller;
+
+    for (const auto& device : devices)
     {
         deviceManager.setMidiInputDeviceEnabled (device.identifier, true);
-        names.add (device.name);
+
+        if (controller.identifier.isEmpty() && (hasChoice ? device.name == chosen : roughtrack::looksLikeControlPort (device.name)))
+            controller = device;
+        else
+            names.add (device.name);
     }
 
     midiInputNames = names.joinIntoString (", ");
+
+    if (controller.identifier == controllerInput.getControllerPort() && (controller.identifier.isEmpty() || controllerOutput != nullptr))
+        return;
+
+    controllerInput.setControllerPort (controller.identifier);
+    controllerName = controller.name;
+    controllerOutput.reset();
+    litNotes.reset();
+
+    // The buttons' lights are set through the output port of the same name, if there is one.
+    if (controller.identifier.isNotEmpty())
+        for (const auto& output : juce::MidiOutput::getAvailableDevices())
+            if (output.name == controller.name)
+                controllerOutput = juce::MidiOutput::openDevice (output.identifier);
+}
+
+void MainComponent::chooseController (const juce::String& portName)
+{
+    settings->setValue ("controllerPort", portName);
+    enableMidiInputs();
+}
+
+void MainComponent::controlCommand (roughtrack::ControlEvent event)
+{
+    using roughtrack::ControlCommand;
+
+    const auto isStopped = engine.getState() == roughtrack::TransportState::stopped;
+    const auto sampleRate = engine.getSampleRate() > 0.0 ? engine.getSampleRate() : preferredSampleRate;
+    const auto samplesPerBar = 60.0 * sampleRate / engine.getTempo() * roughtrack::beatsPerBar;
+
+    switch (event.command)
+    {
+        case ControlCommand::play:
+            if (isStopped)
+                playButton.triggerClick();
+            break;
+
+        case ControlCommand::stop:
+            // Stopping again goes back to the start, as in most DAWs.
+            if (isStopped)
+                returnButton.triggerClick();
+            else
+                stopButton.triggerClick();
+            break;
+
+        case ControlCommand::record:
+            recordButton.triggerClick();
+            break;
+
+        case ControlCommand::rewind:
+            if (isStopped)
+                engine.setPosition (roughtrack::previousBar (engine.getPosition(), samplesPerBar));
+            break;
+
+        case ControlCommand::fastForward:
+            if (isStopped)
+                engine.setPosition (roughtrack::nextBar (engine.getPosition(), samplesPerBar));
+            break;
+
+        case ControlCommand::toggleCycle:
+            setCycleEnabled (! engine.isCycleEnabled());
+            break;
+
+        case ControlCommand::previousTrack: moveArm (-1); break;
+        case ControlCommand::nextTrack:     moveArm (1); break;
+
+        case ControlCommand::armStrip:
+        case ControlCommand::soloStrip:
+        case ControlCommand::muteStrip:
+        case ControlCommand::selectStrip:
+            stripCommand (event);
+            break;
+    }
+}
+
+std::vector<bool> MainComponent::armedByLane() const
+{
+    std::vector<bool> armed;
+
+    for (const auto track : engine.getTrackOrder())
+        armed.push_back (engine.isTrackArmed (track));
+
+    return armed;
+}
+
+void MainComponent::stripCommand (roughtrack::ControlEvent event)
+{
+    using roughtrack::ControlCommand;
+
+    const auto& order = engine.getTrackOrder();
+    const auto lane = controllerBank + event.strip;
+
+    if (! juce::isPositiveAndBelow (lane, (int) order.size()))
+        return;
+
+    const auto track = order[(size_t) lane];
+    const auto trackSettings = engine.getTrackSettings (track);
+    const auto isRecording = engine.getState() == roughtrack::TransportState::recording;
+
+    // Each strip catches up with the engine on the next frame.
+    if (event.command == ControlCommand::soloStrip)
+        engine.setTrackSoloed (track, ! trackSettings.soloed);
+    else if (event.command == ControlCommand::muteStrip)
+        engine.setTrackMuted (track, ! trackSettings.muted);
+    else if (event.command == ControlCommand::armStrip && ! isRecording)
+        engine.setTrackArmed (track, ! engine.isTrackArmed (track));
+    else if (event.command == ControlCommand::selectStrip && ! isRecording)
+        for (const auto other : order)
+            engine.setTrackArmed (other, other == track);
+}
+
+void MainComponent::moveArm (int direction)
+{
+    if (engine.getState() == roughtrack::TransportState::recording)
+        return;
+
+    const auto& order = engine.getTrackOrder();
+    const auto armed = armedByLane();
+    const auto lane = roughtrack::nextArmedLane (armed, direction);
+
+    if (lane < 0)
+        return;
+
+    // Each track's Arm button catches up on the next frame.
+    for (size_t i = 0; i < order.size(); ++i)
+        if (armed[i] != ((int) i == lane))
+            engine.setTrackArmed (order[i], (int) i == lane);
+}
+
+void MainComponent::setCycleEnabled (bool shouldCycle)
+{
+    // Turned on with nowhere to go round, it takes the four bars from the playhead's bar.
+    if (shouldCycle && engine.getCycleRange().getLength() < roughtrack::AudioEngine::minimumCycleSamples)
+    {
+        const auto sampleRate = engine.getSampleRate() > 0.0 ? engine.getSampleRate() : preferredSampleRate;
+        const auto samplesPerBar = 60.0 * sampleRate / engine.getTempo() * roughtrack::beatsPerBar;
+        const auto bar = std::floor ((double) engine.getPosition() / samplesPerBar);
+
+        engine.setCycleRange ({ (juce::int64) std::llround (bar * samplesPerBar), (juce::int64) std::llround ((bar + 4.0) * samplesPerBar) });
+    }
+
+    engine.setCycleEnabled (shouldCycle);
+    loopButton.setToggleState (shouldCycle, juce::dontSendNotification);
+    timeline->repaint();
+}
+
+void MainComponent::showControllerLights()
+{
+    // The fader buttons follow the armed track's bank, and stay put when nothing is armed.
+    const auto armed = armedByLane();
+
+    if (std::find (armed.begin(), armed.end(), true) != armed.end())
+        controllerBank = roughtrack::bankStart (armed);
+
+    controllerBank = juce::jlimit (0, juce::jmax (0, (int) armed.size() - 1) / roughtrack::stripsPerBank * roughtrack::stripsPerBank, controllerBank);
+
+    if (controllerOutput == nullptr)
+        return;
+
+    const auto state = engine.getState();
+    std::array<bool, 128> lit {};
+
+    lit[(size_t) roughtrack::mackie::play] = state != roughtrack::TransportState::stopped;
+    lit[(size_t) roughtrack::mackie::stop] = state == roughtrack::TransportState::stopped;
+    lit[(size_t) roughtrack::mackie::record] = state == roughtrack::TransportState::recording;
+    lit[(size_t) roughtrack::mackie::cycle] = engine.isCycleEnabled();
+
+    const auto& order = engine.getTrackOrder();
+
+    for (int strip = 0; strip < roughtrack::stripsPerBank; ++strip)
+    {
+        const auto lane = controllerBank + strip;
+
+        if (lane >= (int) order.size())
+            break;
+
+        const auto track = order[(size_t) lane];
+        const auto trackSettings = engine.getTrackSettings (track);
+
+        lit[(size_t) (roughtrack::mackie::firstRecord + strip)] = engine.isTrackArmed (track);
+        lit[(size_t) (roughtrack::mackie::firstSelect + strip)] = engine.isTrackArmed (track);
+        lit[(size_t) (roughtrack::mackie::firstSolo + strip)] = trackSettings.soloed;
+        lit[(size_t) (roughtrack::mackie::firstMute + strip)] = trackSettings.muted;
+    }
+
+    // Only changes are sent, and every light once when the controller arrives.
+    const auto send = [&] (int note)
+    {
+        if (! litNotes.has_value() || (*litNotes)[(size_t) note] != lit[(size_t) note])
+            controllerOutput->sendMessageNow (roughtrack::mackieLight (note, lit[(size_t) note]));
+    };
+
+    for (int note = 0; note < roughtrack::mackie::firstSelect + roughtrack::stripsPerBank; ++note)
+        send (note);
+
+    for (const auto note : { roughtrack::mackie::play, roughtrack::mackie::stop, roughtrack::mackie::record, roughtrack::mackie::cycle })
+        send (note);
+
+    litNotes = lit;
 }
 
 void MainComponent::openChannelWindow (int track)
@@ -919,6 +1144,12 @@ bool MainComponent::keyPressed (const juce::KeyPress& key)
     if (key == juce::KeyPress ('x'))
     {
         showConsole (! consoleButton.getToggleState());
+        return true;
+    }
+
+    if (key == juce::KeyPress ('l'))
+    {
+        setCycleEnabled (! engine.isCycleEnabled());
         return true;
     }
 
@@ -1645,6 +1876,11 @@ void MainComponent::updateStatus()
 
     recordButton.setColour (juce::TextButton::buttonColourId, state == roughtrack::TransportState::recording ? console::red : idleColour);
     playButton.setColour (juce::TextButton::buttonColourId, state == roughtrack::TransportState::playing ? console::green.darker (0.3f) : idleColour);
+    showControllerLights();
+
+    // The keyboard's Loop button and a session loading can change it too.
+    if (loopButton.getToggleState() != engine.isCycleEnabled() && ! loopButton.isMouseButtonDown())
+        loopButton.setToggleState (engine.isCycleEnabled(), juce::dontSendNotification);
 
     if (juce::Time::getMillisecondCounter() < showMessageUntil)
     {
@@ -1677,6 +1913,7 @@ void MainComponent::updateStatus()
     status << deviceDescription() << "  |  " << sampleRate << " Hz, " << device->getCurrentBufferSizeSamples() << " samples  |  "
            << "round trip " << juce::String (latency, 2) << " ms (" << (latencyIsCalibrated ? "calibrated" : "reported") << ")  |  "
            << "MIDI in: " << (midiInputNames.isNotEmpty() ? midiInputNames : juce::String ("none")) << "  |  "
+           << (controllerName.isNotEmpty() ? "Controller: " + controllerName + "  |  " : juce::String())
            << "dropouts " << stats.dropouts << "  |  disk " << stats.playbackUnderrunSamples + stats.droppedRecordingSamples
            << "  |  CPU " << juce::roundToInt (deviceManager.getCpuUsage() * 100.0) << "%";
 
@@ -1730,6 +1967,7 @@ void MainComponent::resized()
 
     place (tempoSlider, tempoWidth);
     place (clickButton, transportButtonWidth);
+    place (loopButton, transportButtonWidth);
     place (snapButton, snapButtonWidth);
     endGroup();
 
@@ -1778,7 +2016,7 @@ int MainComponent::getMinimumWidth()
     constexpr auto groupGap = toolbarGroupGap - toolbarGap;
     constexpr auto session = 3 * (transportButtonWidth + toolbarGap) + groupGap;
     constexpr auto transport = 4 * (transportIconWidth + toolbarGap) + positionWidth + toolbarGap + groupGap;
-    constexpr auto tempo = tempoWidth + transportButtonWidth + snapButtonWidth + 3 * toolbarGap + groupGap;
+    constexpr auto tempo = tempoWidth + 2 * transportButtonWidth + snapButtonWidth + 4 * toolbarGap + groupGap;
     constexpr auto views = 3 * (transportButtonWidth + toolbarGap);
 
     return session + transport + tempo + views + 2 * windowMargin;
@@ -1828,6 +2066,23 @@ juce::PopupMenu MainComponent::getMenuForIndex (int, const juce::String&)
     juce::PopupMenu menu;
     menu.addItem (audioSettingsMenuId, "Audio Settings...");
     menu.addItem (calibrateMenuId, "Calibrate Latency...");
+
+    // Any MIDI input can be the controller, for keyboards whose DAW port isn't named as expected.
+    juce::PopupMenu controllers;
+    controllers.addItem (noControllerMenuId, "None", true, controllerName.isEmpty());
+    controllers.addSeparator();
+    controllerMenuPorts.clear();
+
+    for (const auto& device : juce::MidiInput::getAvailableDevices())
+    {
+        if (controllerMenuPorts.contains (device.name))
+            continue;
+
+        controllers.addItem (firstControllerMenuId + controllerMenuPorts.size(), device.name, true, device.name == controllerName);
+        controllerMenuPorts.add (device.name);
+    }
+
+    menu.addSubMenu ("Controller", controllers);
     menu.addSeparator();
     menu.addItem (autoUpdatesMenuId, "Check for Updates Automatically", true, settings->getBoolValue ("checkForUpdates", true));
     return menu;
@@ -1845,6 +2100,10 @@ void MainComponent::menuItemSelected (int menuItemId, int)
         checkForUpdates (true);
     else if (menuItemId == autoUpdatesMenuId)
         settings->setValue ("checkForUpdates", ! settings->getBoolValue ("checkForUpdates", true));
+    else if (menuItemId == noControllerMenuId)
+        chooseController ({});
+    else if (juce::isPositiveAndBelow (menuItemId - firstControllerMenuId, controllerMenuPorts.size()))
+        chooseController (controllerMenuPorts[menuItemId - firstControllerMenuId]);
 }
 
 void MainComponent::checkForUpdates (bool isManual)

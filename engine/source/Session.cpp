@@ -19,6 +19,13 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
     xml->setAttribute ("sampleRate", engine.getSessionSampleRate() > 0.0 ? engine.getSessionSampleRate() : engine.getSampleRate());
     xml->setAttribute ("tempo", engine.getTempo());
     xml->setAttribute ("click", engine.isClickEnabled());
+
+    if (const auto cycle = engine.getCycleRange(); ! cycle.isEmpty())
+    {
+        xml->setAttribute ("cycleStart", juce::String (cycle.getStart()));
+        xml->setAttribute ("cycleEnd", juce::String (cycle.getEnd()));
+        xml->setAttribute ("cycle", engine.isCycleEnabled());
+    }
     xml->setAttribute ("master", (double) engine.getMasterGain());
 
     auto* auxXml = xml->createNewChildElement ("AUX");
@@ -96,6 +103,8 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
 
     engine.setTempo (xml.getDoubleAttribute ("tempo", engine.getTempo()));
     engine.setClickEnabled (xml.getBoolAttribute ("click"));
+    engine.setCycleRange ({ xml.getStringAttribute ("cycleStart").getLargeIntValue(), xml.getStringAttribute ("cycleEnd").getLargeIntValue() });
+    engine.setCycleEnabled (xml.getBoolAttribute ("cycle"));
     engine.setMasterGain ((float) xml.getDoubleAttribute ("master", 1.0));
 
     juce::StringArray problems;

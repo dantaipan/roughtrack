@@ -5,7 +5,10 @@ add_executable(roughtrack_tests
     ChannelStripTests.cpp
     ClipTests.cpp
     ConsoleTests.cpp
+    ControlSurfaceTests.cpp
+    ControllerInputTests.cpp
     CrashRecoveryTests.cpp
+    CycleTests.cpp
     DropoutDetectorTests.cpp
     DrumTests.cpp
     GridTests.cpp
@@ -23,6 +26,7 @@ add_executable(roughtrack_tests
     UpdateTests.cpp
     ../app/source/ConsoleLookAndFeel.cpp
     ../app/source/ConsolePanel.cpp
+    ../app/source/ControllerInput.cpp
     ../app/source/GroovePreview.cpp
     ../app/source/MasterStrip.cpp
     ../app/source/TimelineView.cpp

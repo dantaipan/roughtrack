@@ -142,7 +142,54 @@ void AudioEngine::processBlock (const float* const* inputs,
         return;
     }
 
-    renderBlock (inputs, numInputs, outputs, numOutputs, numSamples);
+    if (state.load() == TransportState::playing && activeCycleEnd.load() > activeCycleStart.load())
+        renderAcrossCycle (inputs, numInputs, outputs, numOutputs, numSamples);
+    else
+        renderBlock (inputs, numInputs, outputs, numOutputs, numSamples);
+}
+
+void AudioEngine::renderAcrossCycle (const float* const* inputs,
+                                     int numInputs,
+                                     float* const* outputs,
+                                     int numOutputs,
+                                     int numSamples) noexcept
+{
+    constexpr int maxChannels = 64;
+    std::array<const float*, maxChannels> inputsFrom {};
+    std::array<float*, maxChannels> outputsFrom {};
+
+    numInputs = juce::jmin (numInputs, maxChannels);
+    numOutputs = juce::jmin (numOutputs, maxChannels);
+
+    const auto start = activeCycleStart.load();
+    const auto end = activeCycleEnd.load();
+
+    // The block is split at the seam, so the jump back is exact to the sample.
+    for (int done = 0; done < numSamples;)
+    {
+        const auto from = position.load();
+        const auto crosses = from < end && from + (numSamples - done) >= end;
+        const auto length = crosses ? (int) (end - from) : numSamples - done;
+
+        for (int channel = 0; channel < numInputs; ++channel)
+            inputsFrom[(size_t) channel] = inputs[channel] != nullptr ? inputs[channel] + done : nullptr;
+
+        for (int channel = 0; channel < numOutputs; ++channel)
+            outputsFrom[(size_t) channel] = outputs[channel] != nullptr ? outputs[channel] + done : nullptr;
+
+        if (length > 0)
+            renderBlock (inputsFrom.data(), numInputs, outputsFrom.data(), numOutputs, length);
+
+        done += length;
+
+        if (crosses)
+        {
+            position = start;
+
+            for (auto& track : tracks)
+                track.notesNeedEnding = true;
+        }
+    }
 }
 
 void AudioEngine::renderBlock (const float* const* inputs,
@@ -490,17 +537,20 @@ void AudioEngine::setState (TransportState newState)
     state = newState;
 }
 
-void AudioEngine::prepareTracksToPlay()
+void AudioEngine::prepareTracksToPlay (juce::Range<juce::int64> cycle)
 {
     refreshLoops();
 
     const auto timeline = position.load();
+    activeCycleStart = cycle.getStart();
+    activeCycleEnd = cycle.getEnd();
 
     // Reading a track ahead by its plugins' latency brings their output back in
     // time without delaying everything else, including what's being monitored.
     for (auto& track : tracks)
     {
-        track.player->prepareToPlay (timeline + track.inserts.getLatencySamples());
+        const auto latency = track.inserts.getLatencySamples();
+        track.player->prepareToPlay (timeline + latency, cycle.isEmpty() ? cycle : cycle + latency);
         track.playbackLatency = track.inserts.getLatencySamples() + track.instrument.getLatencySamples();
         track.drums.reset();
         track.sequencer.rewind();
@@ -512,9 +562,79 @@ bool AudioEngine::play()
     if (state.load() != TransportState::stopped || currentSampleRate <= 0.0 || calibrator != nullptr)
         return false;
 
-    prepareTracksToPlay();
+    const auto cycle = cycleToPlay();
+
+    // Playing from before the loop leads into it. From past it, playback would never reach
+    // it, so it starts at the loop instead.
+    if (! cycle.isEmpty() && position.load() >= cycle.getEnd())
+        position = cycle.getStart();
+
+    prepareTracksToPlay (cycle);
     setState (TransportState::playing);
     return true;
+}
+
+juce::Range<juce::int64> AudioEngine::cycleToPlay() const noexcept
+{
+    const auto range = getCycleRange();
+
+    if (! cycleEnabled.load() || range.getLength() < minimumCycleSamples)
+        return {};
+
+    return range;
+}
+
+juce::Range<juce::int64> AudioEngine::getCycleRange() const noexcept
+{
+    return { cycleStart.load(), juce::jmax (cycleStart.load(), cycleEnd.load()) };
+}
+
+void AudioEngine::setCycleRange (juce::Range<juce::int64> range)
+{
+    range = { juce::jmax<juce::int64> (0, range.getStart()), juce::jmax<juce::int64> (0, range.getEnd()) };
+
+    if (range == getCycleRange())
+        return;
+
+    cycleStart = range.getStart();
+    cycleEnd = range.getEnd();
+    restartCycle();
+}
+
+void AudioEngine::setCycleEnabled (bool shouldCycle)
+{
+    if (cycleEnabled.exchange (shouldCycle) != shouldCycle)
+        restartCycle();
+}
+
+void AudioEngine::restartCycle()
+{
+    // Recording plays straight through, and a stopped transport picks the cycle up on Play.
+    if (state.load() != TransportState::playing || bouncing.load())
+        return;
+
+    const auto cycle = cycleToPlay();
+
+    if (cycle.getStart() == activeCycleStart.load() && cycle.getEnd() == activeCycleEnd.load())
+        return;
+
+    // What's read ahead was read for the old cycle, so it's read again. Only a little is read
+    // now, while the audio waits, and the disk thread reads the rest.
+    constexpr int prefill = 8192;
+    const ScopedStateLock lock (stateLock);
+    const auto timeline = position.load();
+
+    activeCycleStart = cycle.getStart();
+    activeCycleEnd = cycle.getEnd();
+
+    for (auto& track : tracks)
+    {
+        if (! track.active.load() || track.type.load() != TrackType::audio)
+            continue;
+
+        const auto latency = track.inserts.getLatencySamples();
+        track.player->prepareToPlay (timeline + latency, cycle.isEmpty() ? cycle : cycle + latency, prefill);
+    }
 }
 
 juce::Result AudioEngine::record()
@@ -575,9 +695,22 @@ juce::Result AudioEngine::record()
     if (! audioTakes.empty() && sessionSampleRate <= 0.0)
         sessionSampleRate = currentSampleRate;
 
-    // Punching in leaves playback running; only the armed tracks switch over.
+    // Punching in leaves playback running; only the armed tracks switch over. Recording
+    // plays straight through, so playback that was going round the cycle stops doing so.
     if (currentState == TransportState::stopped)
         prepareTracksToPlay();
+    else if (activeCycleEnd.load() > activeCycleStart.load())
+    {
+        const ScopedStateLock lock (stateLock);
+        const auto timeline = position.load();
+
+        activeCycleStart = 0;
+        activeCycleEnd = 0;
+
+        for (auto& track : tracks)
+            if (track.active.load() && track.type.load() == TrackType::audio)
+                track.player->prepareToPlay (timeline + track.inserts.getLatencySamples(), {}, 8192);
+    }
 
     dropoutsAtRecordingStart = dropoutDetector.getDropouts();
     droppedSamplesAtRecordingStart = droppedSamples.load();

@@ -459,6 +459,7 @@ void TimelineView::paint (juce::Graphics& g)
     }
 
     paintRuler (g);
+    paintCycle (g);
 
     const auto x = sampleToX (engine.getPosition());
     g.setColour (juce::Colours::white);
@@ -519,6 +520,123 @@ void TimelineView::paintRuler (juce::Graphics& g)
         g.setColour (juce::Colours::orange.withAlpha (0.85f));
         g.drawText (juce::String (bar + 1), (int) x + 3, half, 40, rulerHeight - half, juce::Justification::centredLeft);
     }
+}
+
+juce::Range<juce::int64> TimelineView::cycleToShow() const
+{
+    return cycleDrag != CycleDrag::none && cycleDrag != CycleDrag::pending ? cyclePreview : engine.getCycleRange();
+}
+
+void TimelineView::paintCycle (juce::Graphics& g)
+{
+    const auto range = cycleToShow();
+
+    if (range.isEmpty())
+        return;
+
+    const auto half = rulerHeight / 2;
+    const auto x1 = sampleToX (range.getStart());
+    const auto x2 = sampleToX (range.getEnd());
+    const auto on = engine.isCycleEnabled() || cycleDrag == CycleDrag::create;
+    const auto colour = on ? juce::Colours::orange : juce::Colours::grey;
+
+    // A band behind the bar numbers, solid while it's on and faint while it's off.
+    const juce::Rectangle<float> band { x1, (float) half + 1.0f, x2 - x1, (float) (rulerHeight - half) - 2.0f };
+    g.setColour (colour.withAlpha (on ? 0.35f : 0.18f));
+    g.fillRoundedRectangle (band, 3.0f);
+    g.setColour (colour.withAlpha (on ? 0.9f : 0.5f));
+    g.drawRoundedRectangle (band, 3.0f, 1.0f);
+
+    // While it's on, its edges run down through the lanes.
+    if (on)
+    {
+        const auto lanesBottom = (float) (getHeight() - scrollBarHeight);
+        g.setColour (juce::Colours::orange.withAlpha (0.35f));
+
+        for (const auto x : { x1, x2 })
+            g.fillRect (x - 0.5f, (float) rulerHeight, 1.0f, lanesBottom - (float) rulerHeight);
+    }
+}
+
+TimelineView::CycleDrag TimelineView::cycleZoneAt (juce::Point<float> point) const
+{
+    constexpr float edgeGrab = 5.0f;
+    const auto range = engine.getCycleRange();
+
+    if (point.y < (float) (rulerHeight / 2) || point.y >= (float) rulerHeight || range.isEmpty())
+        return CycleDrag::pending;
+
+    const auto x1 = sampleToX (range.getStart());
+    const auto x2 = sampleToX (range.getEnd());
+
+    if (std::abs (point.x - x1) <= edgeGrab)
+        return CycleDrag::start;
+
+    if (std::abs (point.x - x2) <= edgeGrab)
+        return CycleDrag::end;
+
+    return point.x > x1 && point.x < x2 ? CycleDrag::move : CycleDrag::pending;
+}
+
+juce::int64 TimelineView::snapSample (juce::int64 sample, const juce::ModifierKeys& mods) const
+{
+    // Command places freely, as it does for clips.
+    const auto grid = mods.isCommandDown() ? roughtrack::SnapGrid::off : snap;
+    return juce::jmax<juce::int64> (0, roughtrack::snapToGrid (sample, grid, samplesPerBar() / roughtrack::beatsPerBar));
+}
+
+juce::int64 TimelineView::shortestCycle (const juce::ModifierKeys& mods) const
+{
+    const auto grid = mods.isCommandDown() ? roughtrack::SnapGrid::off : snap;
+    const auto step = (juce::int64) std::llround (roughtrack::gridLength (grid, samplesPerBar() / roughtrack::beatsPerBar));
+    return juce::jmax (step, roughtrack::AudioEngine::minimumCycleSamples);
+}
+
+void TimelineView::dragCycle (const juce::MouseEvent& event)
+{
+    constexpr int dragThreshold = 3;
+
+    if (cycleDrag == CycleDrag::pending)
+    {
+        if (std::abs (event.getDistanceFromDragStartX()) < dragThreshold)
+            return;
+
+        cycleDrag = CycleDrag::create;
+    }
+
+    const auto shortest = shortestCycle (event.mods);
+    const auto distance = pixelsToSamples ((float) event.getDistanceFromDragStartX());
+    const auto& original = cycleOriginal;
+
+    switch (cycleDrag)
+    {
+        case CycleDrag::create:
+        {
+            const auto from = snapSample (cycleAnchor, event.mods);
+            const auto to = snapSample (xToSample (event.position.x), event.mods);
+            const auto start = juce::jmin (from, to);
+            cyclePreview = { start, juce::jmax (juce::jmax (from, to), start + shortest) };
+            break;
+        }
+
+        case CycleDrag::start:
+            cyclePreview = original.withStart (juce::jmin (snapSample (original.getStart() + distance, event.mods), original.getEnd() - shortest));
+            break;
+
+        case CycleDrag::end:
+            cyclePreview = original.withEnd (juce::jmax (snapSample (original.getEnd() + distance, event.mods), original.getStart() + shortest));
+            break;
+
+        case CycleDrag::move:
+            cyclePreview = original.movedToStartAt (snapSample (original.getStart() + distance, event.mods));
+            break;
+
+        case CycleDrag::none:
+        case CycleDrag::pending:
+            break;
+    }
+
+    repaint();
 }
 
 void TimelineView::paintClip (juce::Graphics& g, int track, const roughtrack::Clip& clip, juce::int64 loopEnd, bool isSelected)
@@ -773,6 +891,14 @@ bool TimelineView::canEdit()
 
 void TimelineView::mouseMove (const juce::MouseEvent& event)
 {
+    if (event.y < rulerHeight)
+    {
+        const auto zone = cycleZoneAt (event.position);
+        setMouseCursor (zone == CycleDrag::start || zone == CycleDrag::end ? juce::MouseCursor::LeftRightResizeCursor
+                                                                           : juce::MouseCursor::NormalCursor);
+        return;
+    }
+
     const auto hit = hitTestClips (event.position);
 
     setMouseCursor (hit.isClip() && hit.zone != Zone::body ? juce::MouseCursor::LeftRightResizeCursor
@@ -783,6 +909,17 @@ void TimelineView::mouseDown (const juce::MouseEvent& event)
 {
     if (event.y < rulerHeight)
     {
+        // A press on the bar numbers might be the start of marking a loop, so it waits to
+        // see. One on the time above moves the playhead at once.
+        if (event.y >= rulerHeight / 2 && ! event.mods.isPopupMenu())
+        {
+            cycleDrag = cycleZoneAt (event.position);
+            cycleOriginal = engine.getCycleRange();
+            cyclePreview = cycleOriginal;
+            cycleAnchor = juce::jmax<juce::int64> (0, xToSample (event.position.x));
+            return;
+        }
+
         if (onSeek != nullptr)
             onSeek (juce::jmax<juce::int64> (0, xToSample (event.position.x)));
 
@@ -817,6 +954,12 @@ void TimelineView::mouseDown (const juce::MouseEvent& event)
 
 void TimelineView::mouseDrag (const juce::MouseEvent& event)
 {
+    if (cycleDrag != CycleDrag::none)
+    {
+        dragCycle (event);
+        return;
+    }
+
     if (! isDragging)
         return;
 
@@ -909,6 +1052,25 @@ roughtrack::ClipList TimelineView::dragClip (const roughtrack::ClipList& clips,
 
 void TimelineView::mouseUp (const juce::MouseEvent&)
 {
+    if (cycleDrag != CycleDrag::none)
+    {
+        const auto drag = std::exchange (cycleDrag, CycleDrag::none);
+
+        // A press that never became a drag is a click, which moves the playhead.
+        if (drag == CycleDrag::pending || (drag == CycleDrag::move && cyclePreview == cycleOriginal))
+        {
+            if (onSeek != nullptr)
+                onSeek (cycleAnchor);
+        }
+        else if ((drag == CycleDrag::create || cyclePreview != cycleOriginal) && onCycleEdit != nullptr)
+        {
+            onCycleEdit (cyclePreview);
+        }
+
+        repaint();
+        return;
+    }
+
     if (! isDragging)
         return;
 

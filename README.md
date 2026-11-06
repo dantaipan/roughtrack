@@ -40,6 +40,8 @@ Audio settings and latency calibration are in the **Settings** menu in the menu 
 
 On the timeline, drag a clip to move it and drag its edges to trim it. Moves, trims and splits snap to the grid chosen with **Snap** in the toolbar (Bar, Beat, 1/16 or Off), and the session remembers the choice. Hold Command while dragging to place freely. The ruler shows bar numbers under the minutes and seconds, and bar lines run through every lane. Trimming both ends of a take to bar lines makes it a whole number of bars, so it loops in time. Right-click a clip or drum part and choose **Loop Until Next Part** to have it repeat until the next one on its track starts, or to the end of the song if nothing follows. A looping part shows a circular arrow by its name, and its repeats are drawn dimmed, each marked where it starts over. Dragging a loop's end stops it looping and keeps the repeats up to where you let go. Right-click for Split Here, Delete Clip, and Add Take at Playhead, which brings back any take in the session folder. Command-Z undoes, Shift-Command-Z redoes, Space plays and stops, and Delete removes the selected clip.
 
+To play a stretch over and over, drag along the bar numbers in the ruler. The range snaps to the grid and shows as an orange band, and playback goes round it until you stop. Drag the band's edges to adjust it, or its middle to move it. **Loop** in the toolbar, or L, turns it off and on, and the session remembers it. Playing from before the range leads into it. Playing from after it starts at the beginning of the range. Recording plays straight through the loop. Clicking the bar numbers, or the time above them, still moves the playhead.
+
 ## Mixdown
 
 **Session → Mix Down to WAV...** mixes the whole session into a 24-bit stereo WAV at the session's sample rate, saved in the session's `Mixdowns` folder unless you choose somewhere else. It renders faster than real time through the same mixer you hear, and runs on until any reverb or delay tail has died away. Live inputs, the keyboard and the click are left out. If the mix goes over full scale, RoughTrack says by how much to lower the master fader.
@@ -103,6 +105,28 @@ Choose **Drums** under **+ Track**, then right-click its lane and use **Add Groo
 Choose **MIDI** under **+ Track**. A new track starts on the General MIDI synth built into macOS; click its instrument button to pick any AU or VST3 instrument, or to open its window. Every connected keyboard is used, and the status bar lists them. Arm the track to play it, and press Record to capture a take. Takes are standard `.mid` files in the session folder, and clips move, trim, split and undo like audio, snapping to sixteenth notes. Like drums, they follow the tempo.
 
 Right-click a MIDI clip and choose **Quantize** to tighten it to quarters, eighths, sixteenths or triplets. This writes a new take beside the original, so the performance as played is never changed. Undo goes straight back, and the original stays under **Add Take at Playhead**.
+
+### Transport buttons on a keyboard
+
+A keyboard's play, stop, record, rewind, fast-forward and track buttons can run RoughTrack, as they do other DAWs. There are two common ways keyboards send them, and RoughTrack understands both:
+
+- **Mackie Control.** Many keyboards have a DAW mode that acts as a Mackie Control surface on a second MIDI port. Choose the keyboard's **Mackie** mode, not one made for a particular DAW such as Ableton, HUI or InControl. For example, on an M-Audio Oxygen MKV, hold **DAW/Preset** and choose **NC1**. RoughTrack picks the port by itself when its name includes "Mackie", "DAW" or "MIDIIN2". If yours is named differently, choose it under **Settings → Controller**. Nothing from that port is played as notes, so the keyboard's keys keep playing through its main port.
+- **MMC (MIDI Machine Control).** Keyboards that send MMC from their transport buttons work from any port, with nothing to set up.
+
+| Button | What it does |
+|---|---|
+| Play | Plays. |
+| Stop | Stops. Pressed while stopped, it goes back to the start. |
+| Record | Records, the same as the Record button. |
+| Rewind / Fast-forward | Moves back or on by a bar, while stopped. |
+| Loop (Cycle) | Mackie only. Turns the loop off and on. |
+| Track or Bank ◀ ▶ | Mackie only. Moves the record arm to the track above or below. |
+
+The buttons under a Mackie keyboard's faders work on the eight tracks around the armed one: tracks 1 to 8, 9 to 16 or 17 to 24. The keyboard chooses what they do. In its record mode they arm tracks, in solo and mute modes they solo and mute, and in select mode they arm just that track.
+
+When the keyboard listens, its button lights follow RoughTrack. Keyboards that only send plain controller messages from these buttons aren't supported yet.
+
+The status line names the controller port in use.
 
 ## Layout
 
