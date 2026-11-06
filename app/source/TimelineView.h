@@ -1,6 +1,9 @@
 #pragma once
 
+#include "GroovePreview.h"
+
 #include "roughtrack/AudioEngine.h"
+#include "roughtrack/Grid.h"
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -16,8 +19,17 @@ public:
     static constexpr int rulerHeight = 36;
     static constexpr int scrollBarHeight = 14;
 
-    /** One style's grooves or fills, with those suited to the tempo first. */
-    static juce::PopupMenu createGrooveMenu (const std::vector<roughtrack::Groove>&, const juce::String& style, bool fills, double beatsPerMinute);
+    /** One style's grooves or fills, with those suited to the tempo first. Given a preview,
+        each one plays when the pointer rests on it.
+    */
+    /** The menu item that turns looping on and off, ticked while it's on. */
+    static juce::PopupMenu::Item createLoopItem (bool isLooping);
+
+    static juce::PopupMenu createGrooveMenu (const std::vector<roughtrack::Groove>&,
+                                             const juce::String& style,
+                                             bool fills,
+                                             double beatsPerMinute,
+                                             const std::shared_ptr<GroovePreview>& preview = {});
 
     TimelineView (roughtrack::AudioEngine&, int laneHeight);
     ~TimelineView() override;
@@ -48,13 +60,31 @@ public:
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseMagnify (const juce::MouseEvent&, float scaleFactor) override;
 
-private:
+    /** Which part of a clip a drag holds. */
     enum class Zone
     {
         body,
         start,
         end
     };
+
+    /** Where a clip drag lands: the clips with one moved or trimmed by a distance, the
+        dragged edge snapped to the grid. A looping clip's end turns into the repeats it
+        was playing. unitsPerBeat is in the clips' own units, samples or ticks.
+    */
+    static roughtrack::ClipList dragClip (const roughtrack::ClipList&,
+                                          int index,
+                                          Zone,
+                                          juce::int64 distance,
+                                          roughtrack::SnapGrid,
+                                          double unitsPerBeat,
+                                          juce::int64 loopEnd);
+
+    /** What moves, trims and splits land on. */
+    void setSnap (roughtrack::SnapGrid);
+    roughtrack::SnapGrid getSnap() const noexcept { return snap; }
+
+private:
 
     struct Hit
     {
@@ -76,6 +106,12 @@ private:
     int lanesHeight() const;
     juce::Rectangle<int> laneBounds (int track) const;
     juce::Rectangle<float> clipBounds (int track, const roughtrack::Clip&) const;
+
+    /** Where the clip or part stops, counting its loop, in the track's units, for what's on screen. */
+    juce::int64 loopEndOf (int track, int index) const;
+
+    /** All of a clip or part, from its start to the end of its loop. */
+    juce::Rectangle<float> extentBounds (int track, int index) const;
     const roughtrack::ClipList& clipsToShow (int track) const;
     Hit hitTestClips (juce::Point<float>) const;
     Hit hitTestParts (int track, juce::Point<float>) const;
@@ -89,6 +125,9 @@ private:
     juce::int64 toClipUnits (int track, juce::int64 sample) const;
     juce::int64 toSamples (int track, juce::int64 clipPosition) const;
     double samplesPerBar() const;
+
+    /** How long a beat is in the track's own units: samples, or ticks on a MIDI track. */
+    double unitsPerBeat (int track) const;
     float pixelsPerBar() const;
     float barToX (int bar) const;
     int xToBar (float x) const;
@@ -97,9 +136,10 @@ private:
 
     juce::AudioThumbnail& thumbnailFor (const juce::File&);
     void paintRuler (juce::Graphics&);
-    void paintClip (juce::Graphics&, int track, const roughtrack::Clip&, bool selected);
-    void paintNotes (juce::Graphics&, const roughtrack::Clip&, juce::Rectangle<float> bounds);
-    void paintPart (juce::Graphics&, int track, const roughtrack::DrumPart&, bool selected);
+    void paintClip (juce::Graphics&, int track, const roughtrack::Clip&, juce::int64 loopEnd, bool selected);
+    void paintClipBody (juce::Graphics&, int track, const roughtrack::Clip&, bool isRepeat);
+    void paintNotes (juce::Graphics&, const roughtrack::Clip&, juce::Rectangle<float> bounds, float alpha = 1.0f);
+    void paintPart (juce::Graphics&, int track, const roughtrack::DrumPart&, int loopEnd, bool selected);
     void paintBarLines (juce::Graphics&, juce::Rectangle<int> lane);
     void paintHits (juce::Graphics&, const roughtrack::DrumPart&, const roughtrack::Groove&, juce::Rectangle<float> bounds);
     void showMenu (const Hit&, juce::Point<float>);
@@ -111,6 +151,7 @@ private:
     bool canEdit();
 
     roughtrack::AudioEngine& engine;
+    std::shared_ptr<GroovePreview> groovePreview = std::make_shared<GroovePreview> (engine);
     const int laneHeight;
 
     juce::File sessionDirectory;
@@ -128,6 +169,11 @@ private:
 
     Hit selected;
     Hit dragging;
+    juce::int64 dragLoopEnd = 0;
+    roughtrack::SnapGrid snap = roughtrack::SnapGrid::bar;
+
+    /** Where the dragged edge will land, in samples, or -1 while nothing's being dragged. */
+    juce::int64 landingSample = -1;
     roughtrack::ClipList dragOriginal, dragPreview;
     roughtrack::DrumPartList partsOriginal, partsPreview;
     bool isDragging = false;

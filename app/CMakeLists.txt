@@ -14,6 +14,7 @@ target_sources(RoughTrack PRIVATE
     source/ChannelWindow.cpp
     source/ConsoleLookAndFeel.cpp
     source/ConsolePanel.cpp
+    source/GroovePreview.cpp
     source/Main.cpp
     source/MainComponent.cpp
     source/MasterStrip.cpp

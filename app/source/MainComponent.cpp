@@ -32,6 +32,7 @@ constexpr int transportButtonWidth = 66;
 constexpr int toolbarGap = 4;
 constexpr int toolbarGroupGap = 20;
 constexpr int tempoWidth = 140;
+constexpr int snapButtonWidth = 88;
 constexpr int positionWidth = 160;
 constexpr int trackScrollBarWidth = 12;
 constexpr int linesPerWheelStep = 300;
@@ -213,6 +214,10 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     clickButton.setColour (juce::TextButton::buttonOnColourId, juce::Colours::orange);
     clickButton.onClick = [this] { engine.setClickEnabled (clickButton.getToggleState()); };
 
+    snapButton.setTooltip ("What clips land on when moved, trimmed or split. Hold Command while dragging to place freely.");
+    snapButton.onClick = [this] { showSnapMenu(); };
+    setSnap (roughtrack::SnapGrid::bar);
+
 
     tunerButton.setClickingTogglesState (true);
     tunerButton.setColour (juce::TextButton::buttonOnColourId, console::green);
@@ -236,7 +241,7 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
     };
 
     for (auto* component : std::initializer_list<juce::Component*> { &returnButton, &playButton, &recordButton, &stopButton,
-                                                                     &clickButton, &tempoSlider, &positionLabel,
+                                                                     &clickButton, &snapButton, &tempoSlider, &positionLabel,
                                                                      &statusLabel,
                                                                      &messageButton, &sessionButton, &effectsButton, &undoButton, &redoButton,
                                                                      &tunerButton, &consoleButton })
@@ -494,6 +499,9 @@ void MainComponent::loadCurrentSession()
             showPluginMessage (result.getErrorMessage());
     }
 
+    // The grid is a choice about this song, so it's kept with it. Older sessions get bars.
+    setSnap (roughtrack::snapFromId (xml != nullptr ? xml->getStringAttribute ("snap") : juce::String()));
+
     if (engine.getTrackOrder().empty())
         engine.addTrack (nextTrackName ("Audio"));
 
@@ -526,7 +534,9 @@ void MainComponent::saveSession()
     if (! sessionLoaded || engine.getState() != roughtrack::TransportState::stopped)
         return;
 
-    const auto text = roughtrack::createSessionXml (engine, currentSession)->toString();
+    auto xml = roughtrack::createSessionXml (engine, currentSession);
+    xml->setAttribute ("snap", roughtrack::getSnapId (timeline->getSnap()));
+    const auto text = xml->toString();
 
     if (text == lastSavedSession)
         return;
@@ -577,6 +587,30 @@ void MainComponent::openSession (const juce::File& directory)
 
     loadCurrentSession();
     showPluginMessage ("Opened " + currentSession.getFileName() + ".");
+}
+
+void MainComponent::setSnap (roughtrack::SnapGrid grid)
+{
+    timeline->setSnap (grid);
+    snapButton.setButtonText (juce::String ("Snap: ") + roughtrack::getSnapName (grid));
+}
+
+void MainComponent::showSnapMenu()
+{
+    juce::PopupMenu menu;
+
+    for (const auto grid : roughtrack::snapGrids)
+        menu.addItem ((int) grid + 1, roughtrack::getSnapName (grid), true, grid == timeline->getSnap());
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (snapButton),
+                        [safeThis = juce::Component::SafePointer (this)] (int result)
+                        {
+                            if (safeThis == nullptr || result == 0)
+                                return;
+
+                            safeThis->setSnap (roughtrack::snapGrids[(size_t) (result - 1)]);
+                            safeThis->saveSession();
+                        });
 }
 
 void MainComponent::showSessionMenu()
@@ -1233,6 +1267,14 @@ void MainComponent::deviceChanged()
 
     if (latencyIsCalibrated)
         engine.setRecordingLatency (settings->getIntValue (latencyKey()));
+
+    // A capture that couldn't load at the old rate may load at this one.
+    if (const auto loaded = engine.retryAmps(); loaded > 0)
+    {
+        refreshChannels();
+        showPluginMessage (loaded == 1 ? juce::String ("A capture that was waiting for its sample rate is loaded.")
+                                       : juce::String (loaded) + " captures that were waiting for their sample rate are loaded.");
+    }
 }
 
 // Latency differs between interfaces and with every rate and buffer size, so
@@ -1668,6 +1710,7 @@ void MainComponent::resized()
 
     place (tempoSlider, tempoWidth);
     place (clickButton, transportButtonWidth);
+    place (snapButton, snapButtonWidth);
     endGroup();
 
     for (auto* button : { &consoleButton, &tunerButton, &effectsButton })
@@ -1715,7 +1758,7 @@ int MainComponent::getMinimumWidth()
     constexpr auto groupGap = toolbarGroupGap - toolbarGap;
     constexpr auto session = 3 * (transportButtonWidth + toolbarGap) + groupGap;
     constexpr auto transport = 4 * (transportIconWidth + toolbarGap) + positionWidth + toolbarGap + groupGap;
-    constexpr auto tempo = tempoWidth + transportButtonWidth + 2 * toolbarGap + groupGap;
+    constexpr auto tempo = tempoWidth + transportButtonWidth + snapButtonWidth + 3 * toolbarGap + groupGap;
     constexpr auto views = 3 * (transportButtonWidth + toolbarGap);
 
     return session + transport + tempo + views + 2 * windowMargin;

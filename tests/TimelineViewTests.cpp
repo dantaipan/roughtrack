@@ -1,6 +1,7 @@
 #include "TestHelpers.h"
 #include "TimelineView.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace roughtrack;
@@ -33,6 +34,9 @@ struct Rig
         test::useTracks (engine);
         engine.prepare (sampleRate, 64);
         view.setSize (800, TimelineView::rulerHeight + 7 * laneHeight + TimelineView::scrollBarHeight);
+
+        // These check that drags move by exactly what the pointer did; snapping has its own tests.
+        view.setSnap (SnapGrid::off);
 
         view.onEdit = [this] (int track, const ClipList& clips, const juce::String& name)
         {
@@ -328,3 +332,116 @@ TEST_CASE ("The groove menu leaves nothing out at any tempo")
     }
 }
 
+
+TEST_CASE ("A hovered groove waits before it plays")
+{
+    HoverDelay delay;
+
+    CHECK (delay.update (3, 0.0) == HoverDelay::Change::none);
+    CHECK (delay.update (3, HoverDelay::delayMs - 1.0) == HoverDelay::Change::none);
+    CHECK (delay.getProgress (HoverDelay::delayMs / 2.0) == Catch::Approx (0.5f));
+
+    CHECK (delay.update (3, HoverDelay::delayMs) == HoverDelay::Change::start);
+    CHECK (delay.getPlaying() == 3);
+
+    // It only starts once.
+    CHECK (delay.update (3, HoverDelay::delayMs * 2.0) == HoverDelay::Change::none);
+}
+
+TEST_CASE ("Sweeping past grooves plays nothing")
+{
+    HoverDelay delay;
+
+    for (int item = 0; item < 10; ++item)
+        CHECK (delay.update (item, item * 100.0) == HoverDelay::Change::none);
+
+    CHECK (delay.getPlaying() == -1);
+}
+
+TEST_CASE ("Moving to another groove stops the first and waits again")
+{
+    HoverDelay delay;
+    delay.update (1, 0.0);
+    REQUIRE (delay.update (1, HoverDelay::delayMs) == HoverDelay::Change::start);
+
+    CHECK (delay.update (2, 1000.0) == HoverDelay::Change::stop);
+    CHECK (delay.update (2, 1000.0 + HoverDelay::delayMs - 1.0) == HoverDelay::Change::none);
+    CHECK (delay.update (2, 1000.0 + HoverDelay::delayMs) == HoverDelay::Change::start);
+}
+
+TEST_CASE ("Leaving the grooves stops the preview")
+{
+    HoverDelay delay;
+    delay.update (4, 0.0);
+    REQUIRE (delay.update (4, HoverDelay::delayMs) == HoverDelay::Change::start);
+
+    CHECK (delay.update (-1, 2000.0) == HoverDelay::Change::stop);
+    CHECK (delay.getPlaying() == -1);
+    CHECK (delay.getProgress (3000.0) == 0.0f);
+}
+
+TEST_CASE ("Groove menus with a preview still list their grooves")
+{
+    test::TempDirectory temp;
+    AudioEngine engine;
+    auto preview = std::make_shared<GroovePreview> (engine);
+
+    CHECK (listMenu (TimelineView::createGrooveMenu (menuGrooves, "Blues", false, 96.0, preview))
+           == juce::StringArray { "[Near 96 BPM]", "Close", "Exact", "Edge", "[Other Tempos]", "Slow", "Past edge" });
+}
+
+TEST_CASE ("The loop menu item is ticked while a part loops")
+{
+    const auto on = TimelineView::createLoopItem (true);
+    const auto off = TimelineView::createLoopItem (false);
+
+    CHECK (on.text == "Loop Until Next Part");
+    CHECK (on.isTicked);
+    CHECK_FALSE (off.isTicked);
+    CHECK (on.itemID == off.itemID);
+}
+
+TEST_CASE ("A MIDI clip recorded off the grid lands on it when trimmed")
+{
+    // Record was pressed a little after bar 2 and Stop a little before bar 5.
+    Clip clip;
+    clip.file = juce::File ("/keys.mid");
+    clip.timelineStart = 3840 + 137;
+    clip.length = 3 * 3840 - 300;
+    clip.fileLength = clip.length;
+
+    // Each edge is dragged inward, short of a bar line, and lands on it.
+    auto clips = TimelineView::dragClip ({ clip }, 0, TimelineView::Zone::start, 3500, SnapGrid::bar, ticksPerBeat, 0);
+    CHECK (clips[0].timelineStart == 2 * 3840);
+
+    clips = TimelineView::dragClip (clips, 0, TimelineView::Zone::end, -3500, SnapGrid::bar, ticksPerBeat, 0);
+    CHECK (clips[0].timelineEnd() == 3 * 3840);
+    CHECK (clips[0].length == 3840);
+}
+
+TEST_CASE ("A moved clip's start lands on the grid, and Off leaves it where it's dropped")
+{
+    Clip clip;
+    clip.file = juce::File ("/take.wav");
+    clip.timelineStart = 1234;
+    clip.length = 96000;
+    clip.fileLength = 96000;
+
+    CHECK (TimelineView::dragClip ({ clip }, 0, TimelineView::Zone::body, 50000, SnapGrid::beat, 24000.0, 0)[0].timelineStart == 48000);
+    CHECK (TimelineView::dragClip ({ clip }, 0, TimelineView::Zone::body, 50000, SnapGrid::off, 24000.0, 0)[0].timelineStart == 51234);
+}
+
+TEST_CASE ("Dragging a loop's end snaps where the repeats stop")
+{
+    Clip clip;
+    clip.file = juce::File ("/take.wav");
+    clip.length = 96000;
+    clip.fileLength = 96000;
+    clip.loopsToNext = true;
+
+    // The loop ran to 500000; dragged back a little, it stops on the nearest bar.
+    const auto baked = TimelineView::dragClip ({ clip }, 0, TimelineView::Zone::end, -30000, SnapGrid::bar, 24000.0, 500000);
+
+    CHECK (baked.back().timelineEnd() == 480000);
+    CHECK_FALSE (baked.front().loopsToNext);
+}

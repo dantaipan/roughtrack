@@ -105,11 +105,14 @@ void ChannelPanel::refresh()
 {
     const auto& channel = engine.getChannel (track);
 
-    ampLabel.setText (channel.hasAmp() ? channel.getAmpFile().getFileNameWithoutExtension() : juce::String ("No capture"), juce::dontSendNotification);
+    // A remembered capture that hasn't loaded, such as at the wrong sample rate, says so.
+    const auto ampName = channel.getAmpFile().getFileNameWithoutExtension();
+    ampLabel.setText (channel.hasAmp() ? ampName : (ampName.isNotEmpty() ? ampName + " (not loaded)" : juce::String ("No capture")),
+                      juce::dontSendNotification);
     cabinetLabel.setText (channel.getCabinetFile() != juce::File() ? channel.getCabinetFile().getFileNameWithoutExtension() : juce::String ("No cabinet"),
                           juce::dontSendNotification);
 
-    clearAmpButton.setEnabled (channel.hasAmp());
+    clearAmpButton.setEnabled (channel.hasAmp() || channel.getAmpFile() != juce::File());
     clearCabinetButton.setEnabled (channel.getCabinetFile() != juce::File());
     parameters.refresh();
 }

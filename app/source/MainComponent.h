@@ -111,6 +111,8 @@ private:
     void loadCurrentSession();
     void saveSession();
     void showSessionMenu();
+    void showSnapMenu();
+    void setSnap (roughtrack::SnapGrid);
     void askForNewSession();
     void applyClipEdit (int track, const roughtrack::ClipList&, const juce::String& editName);
     void applyDrumEdit (int track, const roughtrack::DrumPartList&, const juce::String& editName);
@@ -147,7 +149,7 @@ private:
     TransportButton returnButton { "Return", TransportButton::Icon::returnToStart }, playButton { "Play", TransportButton::Icon::play },
         stopButton { "Stop", TransportButton::Icon::stop }, recordButton { "Record", TransportButton::Icon::record };
     juce::TextButton sessionButton { "Session" }, effectsButton { "Effects" }, undoButton { "Undo" }, redoButton { "Redo" };
-    juce::TextButton clickButton { "Click" };
+    juce::TextButton clickButton { "Click" }, snapButton;
     GhostTrack ghostTrack;
     juce::Label dropIndicator;
     juce::TextButton tunerButton { "Tuner" }, consoleButton { "Console" };

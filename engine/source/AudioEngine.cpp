@@ -1,6 +1,7 @@
 #include "roughtrack/AudioEngine.h"
 
 #include "roughtrack/AudioDevices.h"
+#include "roughtrack/Loops.h"
 
 #include "roughtrack/Metronome.h"
 
@@ -250,6 +251,21 @@ void AudioEngine::processTrack (Track& track,
     {
         renderMidiTrack (track, left, right, numSamples, currentState != TransportState::stopped);
     }
+    else if (isPreviewing (track))
+    {
+        // Running, it plays in the song's time; stopped, it keeps its own.
+        const auto samplesPerBeat = 60.0 * currentSampleRate / tempo.load();
+
+        if (currentState != TransportState::stopped)
+        {
+            previewSampler.render (left, right, numSamples, position.load() + track.playbackLatency, samplesPerBeat);
+        }
+        else
+        {
+            previewSampler.render (left, right, numSamples, previewPosition, samplesPerBeat);
+            previewPosition += numSamples;
+        }
+    }
     else if (currentState != TransportState::stopped && track.type.load() == TrackType::drums)
     {
         track.drums.render (left, right, numSamples, position.load() + track.playbackLatency, 60.0 * currentSampleRate / tempo.load());
@@ -426,7 +442,46 @@ const float* AudioEngine::inputChannel (const float* const* inputs, int numInput
 
 bool AudioEngine::isOutputSilenced (const Track& track, bool anySoloed) const noexcept
 {
+    // A preview is asked for, so it's heard even on a muted or soloed-out track.
+    if (isPreviewing (track))
+        return false;
+
     return track.muted.load() || (anySoloed && ! track.soloed.load());
+}
+
+bool AudioEngine::isPreviewing (const Track& track) const noexcept
+{
+    // The type check covers a track deleted mid-preview and its slot reused.
+    return ! bouncing.load() && track.type.load() == TrackType::drums
+           && previewTrack.load() == (int) std::distance (tracks.data(), &track);
+}
+
+void AudioEngine::startGroovePreview (int track, const juce::String& grooveId)
+{
+    const auto* groove = grooves.find (grooveId);
+
+    if (groove == nullptr || tracks[(size_t) track].type.load() != TrackType::drums)
+        return;
+
+    const auto samplesPerBar = 60.0 * (currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate) / tempo.load() * beatsPerBar;
+    const auto running = state.load() != TransportState::stopped;
+    const auto startBar = running ? (int) ((double) position.load() / samplesPerBar) : 0;
+
+    // Long enough to loop for as long as anyone hovers.
+    constexpr int previewBars = 1000;
+
+    const ScopedStateLock lock (stateLock);
+    previewSampler.setParts ({ { grooveId, startBar, previewBars, 0 } }, grooves);
+    previewSampler.reset();
+    previewPosition = 0;
+    previewTrack = track;
+}
+
+void AudioEngine::stopGroovePreview()
+{
+    const ScopedStateLock lock (stateLock);
+    previewTrack = -1;
+    previewSampler.reset();
 }
 
 void AudioEngine::setState (TransportState newState)
@@ -437,6 +492,8 @@ void AudioEngine::setState (TransportState newState)
 
 void AudioEngine::prepareTracksToPlay()
 {
+    refreshLoops();
+
     const auto timeline = position.load();
 
     // Reading a track ahead by its plugins' latency brings their output back in
@@ -549,10 +606,13 @@ juce::Result AudioEngine::record()
     return juce::Result::ok();
 }
 
-juce::int64 AudioEngine::getSessionLength() const
+namespace
 {
-    const auto rate = currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate;
-    const auto samplesPerBeat = 60.0 * rate / tempo.load();
+
+/** The furthest end of some clips and parts, in samples. */
+template <typename Tracks>
+double findEnd (const Tracks& tracks, double samplesPerBeat, bool countLoops)
+{
     auto end = 0.0;
 
     for (const auto& track : tracks)
@@ -564,19 +624,120 @@ juce::int64 AudioEngine::getSessionLength() const
 
         if (type == TrackType::drums)
         {
-            for (const auto& part : track.drumParts)
+            for (const auto& part : countLoops ? track.playedParts : track.drumParts)
                 end = juce::jmax (end, part.endBar() * beatsPerBar * samplesPerBeat);
         }
         else
         {
             const auto scale = type == TrackType::midi ? samplesPerBeat / ticksPerBeat : 1.0;
 
-            for (const auto& clip : track.clips)
+            for (const auto& clip : countLoops ? track.playedClips : track.clips)
                 end = juce::jmax (end, (double) clip.timelineEnd() * scale);
         }
     }
 
-    return (juce::int64) std::ceil (end);
+    return end;
+}
+
+} // namespace
+
+juce::int64 AudioEngine::getSessionLength() const
+{
+    const auto rate = currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate;
+    return (juce::int64) std::ceil (findEnd (tracks, 60.0 * rate / tempo.load(), true));
+}
+
+double AudioEngine::getSongEndSamples() const
+{
+    // Loops count only their own length, so two last loops can't keep stretching each other.
+    const auto rate = currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate;
+    return findEnd (tracks, 60.0 * rate / tempo.load(), false);
+}
+
+void AudioEngine::refreshLoops()
+{
+    for (int index = 0; index < maxTracks; ++index)
+    {
+        auto& track = tracks[(size_t) index];
+
+        if (! track.active.load())
+            continue;
+
+        const auto type = track.type.load();
+
+        if (type == TrackType::drums)
+        {
+            auto parts = expandLoops (track.drumParts, (int) getSongEnd (index));
+
+            if (parts != track.playedParts)
+            {
+                track.playedParts = std::move (parts);
+                track.drums.setParts (track.playedParts, grooves);
+            }
+
+            continue;
+        }
+
+        auto clips = expandLoops (track.clips, getSongEnd (index));
+
+        if (clips == track.playedClips)
+            continue;
+
+        track.playedClips = std::move (clips);
+
+        if (type == TrackType::midi)
+        {
+            // A loop repeats one take, so each file is read once.
+            std::map<juce::String, std::shared_ptr<const MidiTake>> loaded;
+            std::vector<std::shared_ptr<const MidiTake>> takes;
+
+            for (const auto& clip : track.playedClips)
+            {
+                auto& take = loaded[clip.file.getFullPathName()];
+
+                if (take == nullptr)
+                    take = loadMidiTake (clip.file);
+
+                takes.push_back (take);
+            }
+
+            track.sequencer.setClips (track.playedClips, std::move (takes));
+        }
+        else
+        {
+            track.player->setClips (track.playedClips);
+        }
+    }
+}
+
+juce::int64 AudioEngine::getSongEnd (int track) const
+{
+    const auto rate = currentSampleRate > 0.0 ? currentSampleRate : fallbackSampleRate;
+    const auto samplesPerBeat = 60.0 * rate / tempo.load();
+    const auto songEnd = getSongEndSamples();
+
+    switch (tracks[(size_t) track].type.load())
+    {
+        case TrackType::drums: return (juce::int64) std::ceil (songEnd / (beatsPerBar * samplesPerBeat));
+        case TrackType::midi:  return (juce::int64) std::ceil (songEnd / samplesPerBeat * ticksPerBeat);
+        case TrackType::audio: break;
+    }
+
+    return (juce::int64) std::ceil (songEnd);
+}
+
+juce::int64 AudioEngine::getLoopEnd (int track, int index) const
+{
+    const auto& target = tracks[(size_t) track];
+
+    if (target.type.load() == TrackType::drums)
+    {
+        const auto& part = target.drumParts[(size_t) index];
+        return part.loopsToNext ? findLoopEnd (target.drumParts, index, (int) getSongEnd (track)) : part.endBar();
+    }
+
+    const auto& clip = target.clips[(size_t) index];
+    return clip.loopsToNext ? findLoopEnd (target.clips, index, getSongEnd (track)) : clip.timelineEnd();
 }
 
 namespace
@@ -916,8 +1077,9 @@ void AudioEngine::finishTakes()
         clip.fileLength = reader->lengthInSamples;
 
         track.clips.push_back (clip);
-        track.player->setClips (track.clips);
     }
+
+    refreshLoops();
 }
 
 void AudioEngine::endMidiTake (Track& track)
@@ -1043,8 +1205,10 @@ juce::Result AudioEngine::removeTrack (int track)
     trackOrder.erase (std::remove (trackOrder.begin(), trackOrder.end(), track), trackOrder.end());
 
     target.clips.clear();
+    target.playedClips.clear();
     target.player->setClips ({});
     target.drumParts.clear();
+    target.playedParts.clear();
     target.drums.setParts ({}, grooves);
     target.type = TrackType::audio;
 
@@ -1053,6 +1217,7 @@ juce::Result AudioEngine::removeTrack (int track)
 
     target.sequencer.setClips ({}, {});
     removeAmp (track);
+    refreshLoops();
     target.channel.clearCabinet();
     target.channel.resetParameters();
     setTrackSettings (track, {});
@@ -1148,7 +1313,8 @@ bool AudioEngine::loadTake (int track, const juce::File& file, juce::int64 start
     clip.fileLength = reader->lengthInSamples;
 
     target.clips = { clip };
-    return target.player->setClips (target.clips);
+    refreshLoops();
+    return true;
 }
 
 Take AudioEngine::getTake (int track) const
@@ -1171,23 +1337,10 @@ juce::Result AudioEngine::setClips (int track, const ClipList& clips)
     if (state.load() != TransportState::stopped)
         return juce::Result::fail ("Stop the transport first.");
 
-    auto& target = tracks[(size_t) track];
-    target.clips = clips;
+    tracks[(size_t) track].clips = clips;
 
-    if (target.type.load() == TrackType::midi)
-    {
-        std::vector<std::shared_ptr<const MidiTake>> takes;
-
-        for (const auto& clip : clips)
-            takes.push_back (loadMidiTake (clip.file));
-
-        target.sequencer.setClips (clips, std::move (takes));
-    }
-    else
-    {
-        target.player->setClips (clips);
-    }
-
+    // Any track's loops can reach further or less far now the song's end may have moved.
+    refreshLoops();
     return juce::Result::ok();
 }
 
@@ -1198,8 +1351,18 @@ void AudioEngine::setDrumFolder (const juce::File& folder)
 
 juce::Result AudioEngine::loadDrums()
 {
-    if (grooves.getGrooves().empty() && ! grooves.load (drumFolder.getChildFile ("grooves.xml")))
-        return juce::Result::fail ("The drum grooves in " + drumFolder.getFullPathName() + " couldn't be read.");
+    if (grooves.getGrooves().empty())
+    {
+        if (! grooves.load (drumFolder.getChildFile ("grooves.xml")))
+            return juce::Result::fail ("The drum grooves in " + drumFolder.getFullPathName() + " couldn't be read.");
+
+        // Parts handed over before the grooves were here played nothing, so hand them over again.
+        for (auto& track : tracks)
+            track.playedParts.clear();
+
+        if (state.load() == TransportState::stopped)
+            refreshLoops();
+    }
 
     return drumKit != nullptr ? juce::Result::ok() : loadDrumKit();
 }
@@ -1219,6 +1382,8 @@ juce::Result AudioEngine::loadDrumKit()
 
         for (auto& track : tracks)
             track.drums.setKit (drumKit.get());
+
+        previewSampler.setKit (drumKit.get());
     }
 
     return juce::Result::ok();
@@ -1229,9 +1394,8 @@ juce::Result AudioEngine::setDrumParts (int track, const DrumPartList& parts)
     if (state.load() != TransportState::stopped)
         return juce::Result::fail ("Stop the transport first.");
 
-    auto& target = tracks[(size_t) track];
-    target.drumParts = parts;
-    target.drums.setParts (parts, grooves);
+    tracks[(size_t) track].drumParts = parts;
+    refreshLoops();
     return juce::Result::ok();
 }
 
@@ -1289,6 +1453,35 @@ juce::Result AudioEngine::loadAmp (int track, const juce::File& file)
 
     channel.setAmpFile (file);
     return juce::Result::ok();
+}
+
+juce::Result AudioEngine::restoreAmp (int track, const juce::File& file)
+{
+    const auto result = loadAmp (track, file);
+
+    if (result.failed())
+    {
+        // Silent until it loads, but kept: dropping it would lose the choice at the next save.
+        removeAmp (track);
+        tracks[(size_t) track].channel.setAmpFile (file);
+    }
+
+    return result;
+}
+
+int AudioEngine::retryAmps()
+{
+    auto loaded = 0;
+
+    for (int track = 0; track < maxTracks; ++track)
+    {
+        const auto& channel = tracks[(size_t) track].channel;
+
+        if (tracks[(size_t) track].active.load() && ! channel.hasAmp() && channel.getAmpFile() != juce::File())
+            loaded += loadAmp (track, channel.getAmpFile()).wasOk() ? 1 : 0;
+    }
+
+    return loaded;
 }
 
 void AudioEngine::removeAmp (int track)
@@ -1453,7 +1646,16 @@ int AudioEngine::readTuner (float* destination, int maximumSamples) noexcept
     return scope.blockSize1 + scope.blockSize2;
 }
 
-void AudioEngine::setTempo (double beatsPerMinute)   { tempo = juce::jlimit (30.0, 300.0, beatsPerMinute); }
+void AudioEngine::setTempo (double beatsPerMinute)
+{
+    tempo = juce::jlimit (30.0, 300.0, beatsPerMinute);
+
+    // Bars and samples line up differently now, which moves where loops end. While
+    // playing that waits for the next start.
+    if (state.load() == TransportState::stopped)
+        refreshLoops();
+}
+
 void AudioEngine::setClickEnabled (bool shouldClick) { clickEnabled = shouldClick; }
 void AudioEngine::setMasterGain (float linearGain)   { masterGain = linearGain; }
 void AudioEngine::setRecordingLatency (int samples)  { recordingLatency = samples; }

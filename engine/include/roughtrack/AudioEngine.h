@@ -101,8 +101,18 @@ public:
     juce::Result record();
     void stop();
 
-    /** Where the last clip or drum part ends, in samples. */
+    /** Where the last clip or drum part ends, in samples, counting loops. */
     juce::int64 getSessionLength() const;
+
+    /** Where a clip or drum part stops, counting its loop if it's set to loop: in bars
+        on a drum track, ticks on a MIDI track and samples on an audio track.
+    */
+    juce::int64 getLoopEnd (int track, int index) const;
+
+    /** Where a last loop on this track runs to: the end of everything else in the song,
+        with loops at their own length, in the track's units as for getLoopEnd().
+    */
+    juce::int64 getSongEnd (int track) const;
 
     struct BounceResult
     {
@@ -226,6 +236,15 @@ public:
     juce::Result setDrumParts (int track, const DrumPartList&);
     const DrumPartList& getDrumParts (int track) const { return tracks[(size_t) track].drumParts; }
 
+    /** Plays a groove on a drum track so it can be heard before it's placed. It loops at
+        the session's tempo through the track's channel, and the track's mute and solo are
+        set aside meanwhile. While the transport runs it replaces the track's parts, lined
+        up from the bar the playhead is in; while stopped it plays on its own.
+    */
+    void startGroovePreview (int track, const juce::String& grooveId);
+    void stopGroovePreview();
+    bool isPreviewingGroove() const noexcept { return previewTrack.load() >= 0; }
+
     /** Plugins only change while stopped, because each one moves its track's
         delay compensation, and that's set when the transport starts.
     */
@@ -248,6 +267,17 @@ public:
     /** A capture can change while playing, because it adds no latency. */
     juce::Result loadAmp (int track, const juce::File&);
     void removeAmp (int track);
+
+    /** Loads a session's capture. One that can't load now, because the device runs at
+        another rate or the file has gone, is still remembered, so saving keeps it and
+        retryAmps() can load it later. Any capture the track had is removed either way.
+    */
+    juce::Result restoreAmp (int track, const juce::File&);
+
+    /** Tries again to load every capture that's remembered but not running, such as after
+        the device changes rate. Returns how many loaded.
+    */
+    int retryAmps();
 
     /** Puts every channel and the aux effects back to their defaults. */
     void resetChannels();
@@ -336,6 +366,10 @@ private:
         int recordingChannels = 1;
         ClipList clips;
         DrumPartList drumParts;
+
+        // What actually plays: the above with every loop spelled out.
+        ClipList playedClips;
+        DrumPartList playedParts;
         DrumSampler drums;
         TrackInstrument instrument;
         MidiSequencer sequencer;
@@ -381,6 +415,11 @@ private:
     void endMidiTake (Track&);
     const float* inputChannel (const float* const* inputs, int numInputs, int channel) const noexcept;
     bool isOutputSilenced (const Track&, bool anySoloed) const noexcept;
+
+    /** Where the song ends without its loops, in samples. */
+    double getSongEndSamples() const;
+    void refreshLoops();
+    bool isPreviewing (const Track&) const noexcept;
 
     juce::SpinLock stateLock;
     std::atomic<TransportState> state { TransportState::stopped };
@@ -432,6 +471,10 @@ private:
     juce::File sessionDirectory, drumFolder;
     GrooveLibrary grooves;
     std::shared_ptr<const DrumKit> drumKit;
+
+    DrumSampler previewSampler;
+    std::atomic<int> previewTrack { -1 };
+    juce::int64 previewPosition = 0; // Only the audio thread moves it, while stopped.
     juce::AudioFormatManager formatManager;
     juce::TimeSliceThread readThread { "RoughTrack disk read" }, writeThread { "RoughTrack disk write" };
 

@@ -82,6 +82,9 @@ struct DrumPart
     int bars = 0;
     int offsetBars = 0;
 
+    /** Runs on until the next part on the track starts, or to the end of the song. */
+    bool loopsToNext = false;
+
     int endBar() const noexcept { return startBar + bars; }
     bool operator== (const DrumPart&) const = default;
 };

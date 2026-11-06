@@ -466,3 +466,114 @@ TEST_CASE ("Older sessions open with audio tracks")
     REQUIRE (applySessionXml (engine, xml, temp.directory).wasOk());
     CHECK (engine.getTrackType (0) == TrackType::audio);
 }
+
+TEST_CASE ("A previewed groove plays while stopped, at the session's tempo")
+{
+    EngineRig rig;
+    rig.engine.startGroovePreview (rig.track, "beat");
+
+    CHECK (rig.engine.isPreviewingGroove());
+    CHECK (findOnsets (rig.run (3000)) == std::vector<int> { 0, 24000, 144000 });
+
+    rig.engine.stopGroovePreview();
+
+    CHECK_FALSE (rig.engine.isPreviewingGroove());
+    CHECK (findOnsets (rig.run (100)).empty());
+}
+
+TEST_CASE ("A preview follows the tempo")
+{
+    EngineRig rig;
+    rig.engine.setTempo (60.0);
+    rig.engine.startGroovePreview (rig.track, "beat");
+
+    const auto onsets = findOnsets (rig.run (2000));
+
+    REQUIRE (onsets.size() >= 2);
+    CHECK (onsets[1] == 48000);
+}
+
+TEST_CASE ("A muted drum track can still be previewed")
+{
+    EngineRig rig;
+    rig.engine.setTrackMuted (rig.track, true);
+    rig.engine.startGroovePreview (rig.track, "beat");
+
+    CHECK_FALSE (findOnsets (rig.run (10)).empty());
+}
+
+TEST_CASE ("While playing, a preview replaces the track's parts from the playhead's bar")
+{
+    // What the track would play with the previewed groove placed from bar 1.
+    EngineRig expected;
+    REQUIRE (expected.engine.setDrumParts (expected.track, { { "fill", 1, 1000, 0 } }).wasOk());
+    expected.engine.setPosition (samplesPerBar + 10 * blockSize);
+    REQUIRE (expected.engine.play());
+
+    EngineRig previewed;
+    REQUIRE (previewed.engine.setDrumParts (previewed.track, { { "beat", 0, 8, 0 } }).wasOk());
+    previewed.engine.setPosition (samplesPerBar + 10 * blockSize);
+    REQUIRE (previewed.engine.play());
+    previewed.engine.startGroovePreview (previewed.track, "fill");
+
+    const auto output = previewed.run (3000);
+
+    CHECK_FALSE (findOnsets (output).empty());
+    CHECK (output == expected.run (3000));
+
+    // Letting go brings the track's own parts back.
+    previewed.engine.stopGroovePreview();
+    CHECK_FALSE (previewed.engine.isPreviewingGroove());
+}
+
+TEST_CASE ("A mixdown leaves a preview out")
+{
+    EngineRig rig;
+    REQUIRE (rig.engine.setDrumParts (rig.track, { { "beat", 0, 1, 0 } }).wasOk());
+
+    const auto plain = rig.temp.directory.getChildFile ("plain.wav");
+    const auto withPreview = rig.temp.directory.getChildFile ("preview.wav");
+
+    REQUIRE (rig.engine.bounce (plain, 0, samplesPerBar).result.wasOk());
+
+    rig.engine.startGroovePreview (rig.track, "fill");
+    REQUIRE (rig.engine.bounce (withPreview, 0, samplesPerBar).result.wasOk());
+    rig.engine.stopGroovePreview();
+
+    const auto a = test::openReader (plain), b = test::openReader (withPreview);
+    REQUIRE (a != nullptr);
+    REQUIRE (b != nullptr);
+    REQUIRE (a->lengthInSamples == b->lengthInSamples);
+
+    juce::AudioBuffer<float> left (2, (int) a->lengthInSamples), right (2, (int) b->lengthInSamples);
+    a->read (&left, 0, (int) a->lengthInSamples, 0, true, true);
+    b->read (&right, 0, (int) b->lengthInSamples, 0, true, true);
+
+    for (int sample = 0; sample < left.getNumSamples(); ++sample)
+        REQUIRE (left.getSample (0, sample) == right.getSample (0, sample));
+}
+
+TEST_CASE ("Only a drum track can preview a groove")
+{
+    EngineRig rig;
+    const auto audio = rig.engine.addTrack ("Guitar", TrackType::audio);
+    rig.engine.startGroovePreview (audio, "beat");
+
+    CHECK_FALSE (rig.engine.isPreviewingGroove());
+}
+
+TEST_CASE ("A looping drum part plays on to the next part")
+{
+    EngineRig rig;
+    DrumPart looping { "beat", 0, 2, 0 };
+    looping.loopsToNext = true;
+
+    REQUIRE (rig.engine.setDrumParts (rig.track, { looping, { "fill", 4, 1, 0 } }).wasOk());
+    CHECK (rig.engine.getLoopEnd (rig.track, 0) == 4);
+
+    REQUIRE (rig.engine.play());
+    const auto onsets = findOnsets (rig.run (4 * samplesPerBar / blockSize));
+
+    // Without the loop, bars 2 and 3 would be silent.
+    CHECK (onsets == std::vector<int> { 0, 24000, 144000, 2 * samplesPerBar, 2 * samplesPerBar + 24000, 2 * samplesPerBar + 144000 });
+}

@@ -424,3 +424,44 @@ TEST_CASE ("Resetting channels clears amps and settings")
     CHECK (channelOf (rig).getParameter (ChannelParameter::midGain) == 0.0f);
     CHECK (rig.engine.getAux().getParameter (AuxParameter::delayTime) == 375.0f);
 }
+
+TEST_CASE ("A capture that can't load at the session's opening rate is kept, and loads once the rate matches")
+{
+    Rig rig;
+    REQUIRE (rig.engine.loadAmp (0, examples.getChildFile ("wavenet.nam")).wasOk());
+    const auto xml = createSessionXml (rig.engine, rig.temp.directory);
+
+    // Another app has the interface at 44.1 kHz, and the capture was made at 48 kHz.
+    AudioEngine reopened;
+    reopened.prepare (44100.0, blockSize);
+    applySessionXml (reopened, *xml, rig.temp.directory);
+
+    CHECK_FALSE (reopened.getChannel (0).hasAmp());
+    CHECK (reopened.getChannel (0).getAmpFile() == examples.getChildFile ("wavenet.nam"));
+
+    // Saving now still names the capture, so the choice isn't lost.
+    const auto resaved = createSessionXml (reopened, rig.temp.directory);
+    CHECK (resaved->toString().contains ("wavenet.nam"));
+
+    // Nothing changes while the rate is still wrong.
+    CHECK (reopened.retryAmps() == 0);
+
+    reopened.prepare (sampleRate, blockSize);
+    CHECK (reopened.retryAmps() == 1);
+    CHECK (reopened.getChannel (0).hasAmp());
+}
+
+TEST_CASE ("Clearing a capture that's waiting to load forgets it")
+{
+    Rig rig;
+    rig.engine.prepare (44100.0, blockSize);
+
+    CHECK (rig.engine.restoreAmp (0, examples.getChildFile ("wavenet.nam")).failed());
+    CHECK (rig.engine.getChannel (0).getAmpFile() != juce::File());
+
+    rig.engine.removeAmp (0);
+    CHECK (rig.engine.getChannel (0).getAmpFile() == juce::File());
+
+    rig.engine.prepare (sampleRate, blockSize);
+    CHECK (rig.engine.retryAmps() == 0);
+}

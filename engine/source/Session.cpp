@@ -67,6 +67,9 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
             clipXml->setAttribute ("offset", juce::String (clip.fileOffset));
             clipXml->setAttribute ("length", juce::String (clip.length));
             clipXml->setAttribute ("fileLength", juce::String (clip.fileLength));
+
+            if (clip.loopsToNext)
+                clipXml->setAttribute ("loop", true);
         }
 
         for (const auto& part : engine.getDrumParts (track))
@@ -76,6 +79,9 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
             partXml->setAttribute ("startBar", part.startBar);
             partXml->setAttribute ("bars", part.bars);
             partXml->setAttribute ("offsetBars", part.offsetBars);
+
+            if (part.loopsToNext)
+                partXml->setAttribute ("loop", true);
         }
     }
 
@@ -149,7 +155,7 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
 
             if (channelXml->getStringAttribute ("amp").isNotEmpty())
             {
-                const auto loaded = engine.loadAmp (track, ampFile);
+                const auto loaded = engine.restoreAmp (track, ampFile);
 
                 if (loaded.failed())
                     problems.addIfNotAlreadyThere (ampFile.getFileName() + " (" + loaded.getErrorMessage() + ")");
@@ -169,6 +175,7 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
             clip.fileOffset = clipXml->getStringAttribute ("offset").getLargeIntValue();
             clip.length = clipXml->getStringAttribute ("length").getLargeIntValue();
             clip.fileLength = clipXml->getStringAttribute ("fileLength").getLargeIntValue();
+            clip.loopsToNext = clipXml->getBoolAttribute ("loop");
 
             if (! clip.file.existsAsFile())
                 problems.addIfNotAlreadyThere (clip.file.getFileName());
@@ -197,6 +204,7 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
                 part.startBar = partXml->getIntAttribute ("startBar");
                 part.bars = partXml->getIntAttribute ("bars");
                 part.offsetBars = partXml->getIntAttribute ("offsetBars");
+                part.loopsToNext = partXml->getBoolAttribute ("loop");
 
                 if (engine.getGrooves().find (part.groove) == nullptr)
                     problems.addIfNotAlreadyThere ("groove " + part.groove);

@@ -8,8 +8,10 @@ add_executable(roughtrack_tests
     CrashRecoveryTests.cpp
     DropoutDetectorTests.cpp
     DrumTests.cpp
+    GridTests.cpp
     InsertTests.cpp
     LatencyCalibratorTests.cpp
+    LoopTests.cpp
     MetronomeTests.cpp
     MeterTests.cpp
     MidiTests.cpp
@@ -20,6 +22,7 @@ add_executable(roughtrack_tests
     TunerTests.cpp
     ../app/source/ConsoleLookAndFeel.cpp
     ../app/source/ConsolePanel.cpp
+    ../app/source/GroovePreview.cpp
     ../app/source/MasterStrip.cpp
     ../app/source/TimelineView.cpp
     ../app/source/ToolbarButtons.cpp

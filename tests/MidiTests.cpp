@@ -748,6 +748,7 @@ TEST_CASE ("Dragging a MIDI clip snaps to sixteenths")
     REQUIRE (engine.setClips (track, { makeMidiClip (file, 0, 3840) }).wasOk());
 
     view.onEdit = [&] (int edited, const ClipList& clips, const juce::String&) { engine.setClips (edited, clips); };
+    view.setSnap (SnapGrid::sixteenth);
 
     const auto makeEventAt = [&] (juce::Point<float> position, juce::Point<float> downAt, juce::ModifierKeys modifiers)
     {
@@ -1055,4 +1056,26 @@ TEST_CASE ("Every output of an instrument gets a buffer and only the main one pl
 
     CHECK (synth->channelsProcessed == 16);
     CHECK (*std::max_element (left.begin(), left.end()) > 0.0f);
+}
+
+TEST_CASE ("A looping MIDI clip plays its notes again until the next clip")
+{
+    Rig rig;
+    const auto take = rig.writeTake();
+
+    auto looping = makeMidiClip (take, 0, 3840);
+    looping.loopsToNext = true;
+
+    REQUIRE (rig.engine.setClips (rig.track, { looping, makeMidiClip (take, 3 * 3840, 3840) }).wasOk());
+    REQUIRE (rig.engine.play());
+    rig.run (blocksFor (13 * samplesPerBeat));
+
+    std::vector<juce::int64> starts;
+
+    for (const auto& note : rig.synth->notesOn())
+        if (note.message.getNoteNumber() == 60)
+            starts.push_back (note.sample);
+
+    // Note 60 opens each four-beat pass, then the next clip.
+    CHECK (starts == std::vector<juce::int64> { 0, 4 * samplesPerBeat, 8 * samplesPerBeat, 12 * samplesPerBeat });
 }

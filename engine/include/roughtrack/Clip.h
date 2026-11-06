@@ -18,6 +18,9 @@ struct Clip
     juce::int64 length = 0;
     juce::int64 fileLength = 0;
 
+    /** Repeats until the next clip on the track starts, or to the end of the song. */
+    bool loopsToNext = false;
+
     juce::int64 timelineEnd() const noexcept { return timelineStart + length; }
     bool operator== (const Clip&) const = default;
 };

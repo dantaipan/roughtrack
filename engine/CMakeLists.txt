@@ -8,8 +8,10 @@ add_library(roughtrack_engine STATIC
     source/DrumKit.cpp
     source/Drums.cpp
     source/DrumSampler.cpp
+    source/Grid.cpp
     source/InsertChain.cpp
     source/LatencyCalibrator.cpp
+    source/Loops.cpp
     source/Metronome.cpp
     source/MicrophoneAccess.mm
     source/Midi.cpp
