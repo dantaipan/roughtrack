@@ -90,6 +90,7 @@ std::unique_ptr<juce::AudioPluginInstance> InsertChain::exchange (int slotIndex,
 
     std::swap (slot.instance, instance);
     slot.bypassed = false;
+    slot.beforeAmp = false;
     updateBuffer (slot);
 
     return instance;
@@ -106,11 +107,13 @@ int InsertChain::getLatencySamples() const noexcept
     return total;
 }
 
-void InsertChain::process (float* left, float* right, int numSamples) noexcept
+void InsertChain::process (float* left, float* right, int numSamples, InsertStage stage) noexcept
 {
+    const auto wantBeforeAmp = stage == InsertStage::beforeAmp;
+
     for (auto& slot : slots)
     {
-        if (slot.instance == nullptr || slot.bypassed.load())
+        if (slot.instance == nullptr || slot.bypassed.load() || slot.beforeAmp.load() != wantBeforeAmp)
             continue;
 
         // A device can deliver more than it promised, but a plugin mustn't get it.

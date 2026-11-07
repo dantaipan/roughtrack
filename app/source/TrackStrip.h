@@ -56,7 +56,7 @@ public:
 
     /** The shortest channel that still has a usable fader. */
     static int getMinimumChannelHeight();
-    void showInsert (int slot, const juce::String& pluginName, bool bypassed);
+    void showInsert (int slot, const juce::String& pluginName, bool bypassed, bool beforeAmp = false);
 
     void showChannelActive (bool hasAmp);
 

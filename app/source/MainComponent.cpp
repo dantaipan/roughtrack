@@ -20,6 +20,7 @@ constexpr int rescanMenuId = 100000;
 constexpr int openMenuId = 100001;
 constexpr int bypassMenuId = 100002;
 constexpr int removeMenuId = 100003;
+constexpr int beforeAmpMenuId = 100004;
 
 constexpr int autosaveTicks = 2 * timerHz;
 constexpr int stripWidth = 300;
@@ -1255,7 +1256,10 @@ void MainComponent::showInsertMenu (int track, int slot, juce::Component& button
     {
         menu.addItem (openMenuId, "Open");
         if (! isInstrument)
+        {
             menu.addItem (bypassMenuId, "Bypass", true, engine.isInsertBypassed (track, slot));
+            menu.addItem (beforeAmpMenuId, "Before Amp", true, engine.isInsertBeforeAmp (track, slot));
+        }
 
         menu.addItem (removeMenuId, "Remove");
         menu.addSeparator();
@@ -1287,11 +1291,19 @@ void MainComponent::showInsertMenu (int track, int slot, juce::Component& button
                                 safeThis->refreshInsert (track, slot);
                                 safeThis->saveInserts();
                             }
+                            else if (result == beforeAmpMenuId)
+                            {
+                                safeThis->engine.setInsertBeforeAmp (track, slot, ! safeThis->engine.isInsertBeforeAmp (track, slot));
+                                safeThis->refreshInsert (track, slot);
+                                safeThis->saveInserts();
+                            }
                             else
                             {
                                 roughtrack::SavedInsert insert;
                                 insert.track = track;
                                 insert.slot = slot;
+                                // A replacement keeps its slot's place: a pedal swapped for a pedal stays before the amp
+                                insert.beforeAmp = safeThis->engine.isInsertBeforeAmp (track, slot);
                                 insert.description = (slot == roughtrack::instrumentSlot ? safeThis->pluginLibrary->getInstruments()
                                                                                          : safeThis->pluginLibrary->getPlugins())[(size_t) (result - firstPluginMenuId)];
 
@@ -1337,6 +1349,7 @@ void MainComponent::loadInsert (int track, int slot, const roughtrack::SavedInse
                                        if (failure.isEmpty())
                                        {
                                            self.engine.setInsertBypassed (track, slot, insert.bypassed);
+                                           self.engine.setInsertBeforeAmp (track, slot, insert.beforeAmp);
                                            self.showPluginMessage (insert.description.name + " loaded, latency "
                                                                    + juce::String (self.engine.getInsert (track, slot)->getLatencySamples()) + " samples.");
                                        }
@@ -1387,12 +1400,13 @@ void MainComponent::refreshInsert (int track, int slot)
 
     const auto name = plugin != nullptr ? plugin->getName() : juce::String();
     const auto bypassed = engine.isInsertBypassed (track, slot);
+    const auto beforeAmp = engine.isInsertBeforeAmp (track, slot);
 
     if (auto& strip = strips[(size_t) track])
-        strip->showInsert (slot, name, bypassed);
+        strip->showInsert (slot, name, bypassed, beforeAmp);
 
     if (auto* channel = consolePanel.getChannel (track))
-        channel->showInsert (slot, name, bypassed);
+        channel->showInsert (slot, name, bypassed, beforeAmp);
 }
 
 void MainComponent::restoreInserts()
