@@ -77,6 +77,12 @@ std::unique_ptr<juce::XmlElement> createSessionXml (const AudioEngine& engine, c
 
             if (clip.loopsToNext)
                 clipXml->setAttribute ("loop", true);
+
+            if (clip.fadeIn > 0)
+                clipXml->setAttribute ("fadeIn", juce::String (clip.fadeIn));
+
+            if (clip.fadeOut > 0)
+                clipXml->setAttribute ("fadeOut", juce::String (clip.fadeOut));
         }
 
         for (const auto& part : engine.getDrumParts (track))
@@ -185,6 +191,8 @@ juce::Result applySessionXml (AudioEngine& engine, const juce::XmlElement& xml, 
             clip.length = clipXml->getStringAttribute ("length").getLargeIntValue();
             clip.fileLength = clipXml->getStringAttribute ("fileLength").getLargeIntValue();
             clip.loopsToNext = clipXml->getBoolAttribute ("loop");
+            clip.fadeIn = clipXml->getStringAttribute ("fadeIn", "0").getLargeIntValue();
+            clip.fadeOut = clipXml->getStringAttribute ("fadeOut", "0").getLargeIntValue();
 
             if (! clip.file.existsAsFile())
                 problems.addIfNotAlreadyThere (clip.file.getFileName());

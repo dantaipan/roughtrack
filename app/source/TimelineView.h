@@ -40,6 +40,9 @@ public:
 
     /** A loop range marked or adjusted in the ruler, in samples, when the drag ends. */
     std::function<void (juce::Range<juce::int64>)> onCycleEdit;
+
+    /** Clear Loop, from right-clicking the ruler: takes the loop off the timeline. */
+    std::function<void()> onCycleClear;
     std::function<void (const juce::String&)> onMessage;
     std::function<void (float pixels)> onScrollLanes;
 
@@ -60,6 +63,7 @@ public:
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
     void mouseMagnify (const juce::MouseEvent&, float scaleFactor) override;
 
@@ -68,12 +72,15 @@ public:
     {
         body,
         start,
-        end
+        end,
+        fadeIn,
+        fadeOut
     };
 
     /** Where a clip drag lands: the clips with one moved or trimmed by a distance, the
         dragged edge snapped to the grid. A looping clip's end turns into the repeats it
-        was playing. unitsPerBeat is in the clips' own units, samples or ticks.
+        was playing. A fade handle sets that fade, off the grid. unitsPerBeat is in the
+        clips' own units, samples or ticks.
     */
     static roughtrack::ClipList dragClip (const roughtrack::ClipList&,
                                           int index,
@@ -120,6 +127,10 @@ private:
     Hit hitTestParts (int track, juce::Point<float>) const;
     static Zone findZone (juce::Rectangle<float> bounds, juce::Point<float>);
 
+    /** The handles on an audio clip's top edge that set its fades, at the inner end of each fade. */
+    juce::Rectangle<float> fadeHandleBounds (int track, const roughtrack::Clip&, Zone) const;
+    void paintFades (juce::Graphics&, int track, const roughtrack::Clip&, bool fadesOut, bool showHandles);
+
     bool isDrums (int track) const noexcept;
     bool isMidi (int track) const noexcept;
     double samplesPerTick() const;
@@ -157,7 +168,7 @@ private:
     juce::int64 snapSample (juce::int64 sample, const juce::ModifierKeys&) const;
     juce::int64 shortestCycle (const juce::ModifierKeys&) const;
     void dragCycle (const juce::MouseEvent&);
-    void paintClip (juce::Graphics&, int track, const roughtrack::Clip&, juce::int64 loopEnd, bool selected);
+    void paintClip (juce::Graphics&, int track, const roughtrack::Clip&, juce::int64 loopEnd, bool selected, bool hovered);
     void paintClipBody (juce::Graphics&, int track, const roughtrack::Clip&, bool isRepeat);
     void paintNotes (juce::Graphics&, const roughtrack::Clip&, juce::Rectangle<float> bounds, float alpha = 1.0f);
     void paintPart (juce::Graphics&, int track, const roughtrack::DrumPart&, int loopEnd, bool selected);
@@ -189,6 +200,7 @@ private:
     int verticalOffset = 0;
 
     Hit selected;
+    Hit hovered;
     Hit dragging;
     juce::int64 dragLoopEnd = 0;
     roughtrack::SnapGrid snap = roughtrack::SnapGrid::bar;

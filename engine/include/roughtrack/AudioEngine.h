@@ -295,6 +295,14 @@ public:
     /** Puts every channel and the aux effects back to their defaults. */
     void resetChannels();
 
+    /** Puts the song-wide settings back to how a new session starts: default tempo,
+        no click, master fader at unity and no loop. Done before any session loads, so
+        one with nothing saved yet doesn't keep the last one's.
+    */
+    void resetSessionSettings();
+
+    static constexpr double defaultTempo = 120.0;
+
     TakeHealth getLastTakeHealth() const noexcept { return { lastTakeDropouts.load(), lastTakeDroppedSamples.load() }; }
 
     /** Highest post-fader level since the last call. */
@@ -462,7 +470,7 @@ private:
     double sessionSampleRate = 0.0;
     int bufferCapacity = 0;
 
-    std::atomic<double> tempo { 120.0 };
+    std::atomic<double> tempo { defaultTempo };
     std::atomic<bool> clickEnabled { false };
     std::atomic<float> masterGain { 1.0f }, masterPeak { 0.0f }, masterLevelSquared { 0.0f };
     float levelStep = 1.0f;

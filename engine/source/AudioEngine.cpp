@@ -1643,6 +1643,15 @@ void AudioEngine::resetChannels()
     aux.resetParameters();
 }
 
+void AudioEngine::resetSessionSettings()
+{
+    setTempo (defaultTempo);
+    setClickEnabled (false);
+    setMasterGain (1.0f);
+    setCycleEnabled (false);
+    setCycleRange ({});
+}
+
 juce::AudioPluginInstance* AudioEngine::getInsert (int track, int slot) const
 {
     return slot == instrumentSlot ? tracks[(size_t) track].instrument.get() : tracks[(size_t) track].inserts.get (slot);

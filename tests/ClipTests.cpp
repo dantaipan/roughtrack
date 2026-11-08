@@ -1,8 +1,10 @@
 #include "roughtrack/Clip.h"
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 using namespace roughtrack;
+using Catch::Approx;
 
 namespace
 {
@@ -158,4 +160,67 @@ TEST_CASE ("A clip buried under another adds no edge to what's heard")
 
     CHECK (distances.sinceEdge == 96);
     CHECK (distances.untilEdge == 96);
+}
+
+TEST_CASE ("Fades stay within the clip")
+{
+    const auto clips = setClipFades ({ makeClip (0, 1000) }, 0, -50, 2000);
+
+    CHECK (clips[0].fadeIn == 0);
+    CHECK (clips[0].fadeOut == 1000);
+
+    const auto both = setClipFades ({ makeClip (0, 1000) }, 0, 700, 700);
+
+    CHECK (both[0].fadeIn == 700);
+    CHECK (both[0].fadeOut == 300);
+}
+
+TEST_CASE ("A fade rises from silence on an equal-power curve")
+{
+    auto clip = makeClip (0, 10000);
+    clip.fadeIn = 1000;
+    clip.fadeOut = 2000;
+
+    CHECK (fadeGain (clip, 0) < 0.01f);
+    CHECK (fadeGain (clip, 500) == Catch::Approx (0.7071f).margin (0.002));
+    CHECK (fadeGain (clip, 999) > 0.99f);
+    CHECK (fadeGain (clip, 5000) == 1.0f);
+    CHECK (fadeGain (clip, 9000) == Catch::Approx (0.7071f).margin (0.002));
+    CHECK (fadeGain (clip, 9999) < 0.01f);
+
+    CHECK (overlapsFade (clip, 900, 64));
+    CHECK_FALSE (overlapsFade (clip, 1000, 64));
+    CHECK_FALSE (overlapsFade (clip, 7936, 64));
+    CHECK (overlapsFade (clip, 7937, 64));
+}
+
+TEST_CASE ("Trimming keeps a clip's fades, shortened if the clip gets too short")
+{
+    auto clip = makeClip (1000, 4000, 1000);
+    clip.fadeIn = 500;
+    clip.fadeOut = 1500;
+
+    const auto trimmed = trimClipStart ({ clip }, 0, 1500);
+    CHECK (trimmed[0].fadeIn == 500);
+    CHECK (trimmed[0].fadeOut == 1500);
+
+    const auto short_ = trimClipEnd ({ clip }, 0, 2000);
+    CHECK (short_[0].length == 1000);
+    CHECK (short_[0].fadeIn == 500);
+    CHECK (short_[0].fadeOut == 500);
+}
+
+TEST_CASE ("Splitting a faded clip leaves each fade on its outer end")
+{
+    auto clip = makeClip (0, 4000);
+    clip.fadeIn = 500;
+    clip.fadeOut = 800;
+
+    const auto pieces = splitClip ({ clip }, 0, 2000);
+
+    REQUIRE (pieces.size() == 2);
+    CHECK (pieces[0].fadeIn == 500);
+    CHECK (pieces[0].fadeOut == 0);
+    CHECK (pieces[1].fadeIn == 0);
+    CHECK (pieces[1].fadeOut == 800);
 }

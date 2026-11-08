@@ -533,3 +533,54 @@ TEST_CASE ("Clicking the time above the bar numbers moves the playhead at once")
     REQUIRE (rig.seeks.size() == 1);
     CHECK (rig.seeks[0] == 120 * samplesPerPixel);
 }
+
+namespace
+{
+/** On a clip's top edge, where its fade handles sit. */
+float handleY (int track)
+{
+    return (float) (TimelineView::rulerHeight + track * laneHeight + 3 + 3);
+}
+} // namespace
+
+TEST_CASE ("Dragging a clip's top corners sets its fades")
+{
+    Rig rig;
+    REQUIRE (rig.engine.setClips (2, { makeClip (120000, 480000) }).wasOk());
+
+    // The clip runs from x 100 to 500, so with no fades the handles are in its corners.
+    rig.drag ({ 103.0f, handleY (2) }, { 123.0f, handleY (2) });
+
+    CHECK (rig.lastEdit == "Fade In");
+    CHECK (rig.engine.getClips (2)[0].fadeIn == 20 * samplesPerPixel);
+    CHECK (rig.engine.getClips (2)[0].timelineStart == 120000);
+
+    rig.drag ({ 497.0f, handleY (2) }, { 467.0f, handleY (2) });
+
+    CHECK (rig.lastEdit == "Fade Out");
+    CHECK (rig.engine.getClips (2)[0].fadeOut == 30 * samplesPerPixel);
+    CHECK (rig.engine.getClips (2)[0].length == 480000);
+
+    // The fade-in handle now sits where that fade ends, and dragging it back shortens it.
+    rig.drag ({ 120.0f, handleY (2) }, { 110.0f, handleY (2) });
+    CHECK (rig.engine.getClips (2)[0].fadeIn == 10 * samplesPerPixel);
+}
+
+TEST_CASE ("Below the fade handles, a clip's edges still trim")
+{
+    Rig rig;
+    REQUIRE (rig.engine.setClips (2, { makeClip (120000, 480000) }).wasOk());
+
+    rig.drag ({ 102.0f, Rig::laneY (2) }, { 122.0f, Rig::laneY (2) });
+
+    CHECK (rig.lastEdit == "Trim Clip");
+    CHECK (rig.engine.getClips (2)[0].fadeIn == 0);
+}
+
+TEST_CASE ("A fade drag that doesn't move changes nothing")
+{
+    const ClipList clips { makeClip (0, 48000) };
+
+    CHECK (TimelineView::dragClip (clips, 0, TimelineView::Zone::fadeIn, 0, SnapGrid::bar, 24000.0, 0) == clips);
+    CHECK (TimelineView::dragClip (clips, 0, TimelineView::Zone::fadeOut, -4800, SnapGrid::bar, 24000.0, 0)[0].fadeOut == 4800);
+}

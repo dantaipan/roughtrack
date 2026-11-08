@@ -21,6 +21,12 @@ struct Clip
     /** Repeats until the next clip on the track starts, or to the end of the song. */
     bool loopsToNext = false;
 
+    /** How long the clip takes to rise from silence at its start and fall back to
+        silence at its end, in the clip's own units. Audio clips only.
+    */
+    juce::int64 fadeIn = 0;
+    juce::int64 fadeOut = 0;
+
     juce::int64 timelineEnd() const noexcept { return timelineStart + length; }
     bool operator== (const Clip&) const = default;
 };
@@ -59,5 +65,16 @@ ClipList trimClipStart (ClipList, int index, juce::int64 newTimelineStart);
 ClipList trimClipEnd (ClipList, int index, juce::int64 newTimelineEnd);
 ClipList splitClip (ClipList, int index, juce::int64 position);
 ClipList removeClip (ClipList, int index);
+
+/** Sets a clip's fades, kept at zero or more and together no longer than the clip. */
+ClipList setClipFades (ClipList, int index, juce::int64 fadeIn, juce::int64 fadeOut);
+
+/** The gain a clip's fades give at a position within it: an equal-power curve, so a
+    fade sounds even all the way, and 1 outside the fades.
+*/
+float fadeGain (const Clip&, juce::int64 positionInClip) noexcept;
+
+/** True if a stretch of a clip, from a position within it, touches either fade. */
+bool overlapsFade (const Clip&, juce::int64 positionInClip, juce::int64 length) noexcept;
 
 } // namespace roughtrack

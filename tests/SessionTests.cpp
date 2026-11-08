@@ -513,3 +513,71 @@ TEST_CASE ("Clearing the tracks forgets the session's rate")
 
     CHECK (rig.engine.getSessionSampleRate() == 0.0);
 }
+
+TEST_CASE ("A clip's fades are heard and saved with the session")
+{
+    Rig rig;
+
+    juce::AudioBuffer<float> steady (1, 48000);
+    for (int i = 0; i < steady.getNumSamples(); ++i)
+        steady.setSample (0, i, 0.5f);
+
+    const auto file = rig.temp.directory.getChildFile ("steady.wav");
+    test::writeWav (file, steady, sampleRate);
+
+    auto clip = makeClip (file, 0, 0, 4000);
+    clip.fadeIn = 1000;
+    clip.fadeOut = 1000;
+    REQUIRE (rig.engine.setClips (0, { clip }).wasOk());
+
+    const auto out = rig.play (0, 70);
+
+    CHECK (std::abs (out[1]) < 0.01f);
+    CHECK (out[500] == Catch::Approx (0.5f * 0.7071f).margin (0.005));
+    CHECK (out[2000] == Catch::Approx (0.5f).margin (1.0e-4));
+    CHECK (out[3500] == Catch::Approx (0.5f * 0.7071f).margin (0.005));
+    CHECK (std::abs (out[3998]) < 0.01f);
+
+    const auto xml = createSessionXml (rig.engine, rig.temp.directory);
+
+    AudioEngine restored;
+    restored.prepare (sampleRate, blockSize);
+    REQUIRE (applySessionXml (restored, *xml, rig.temp.directory).wasOk());
+    REQUIRE (restored.getClips (0).size() == 1);
+    CHECK (restored.getClips (0)[0].fadeIn == 1000);
+    CHECK (restored.getClips (0)[0].fadeOut == 1000);
+}
+
+TEST_CASE ("A clip saved without fades loads with none")
+{
+    Rig rig;
+    const auto file = writeRamp (rig.temp.directory, "take.wav", 48000);
+    REQUIRE (rig.engine.setClips (0, { makeClip (file, 0, 0, 2000) }).wasOk());
+
+    const auto xml = createSessionXml (rig.engine, rig.temp.directory);
+    CHECK_FALSE (xml->toString().contains ("fadeIn"));
+
+    AudioEngine restored;
+    restored.prepare (sampleRate, blockSize);
+    REQUIRE (applySessionXml (restored, *xml, rig.temp.directory).wasOk());
+    CHECK (restored.getClips (0)[0].fadeIn == 0);
+    CHECK (restored.getClips (0)[0].fadeOut == 0);
+}
+
+TEST_CASE ("A new session starts with default song settings, not the last session's")
+{
+    AudioEngine engine;
+    engine.setTempo (97.5);
+    engine.setClickEnabled (true);
+    engine.setMasterGain (0.5f);
+    engine.setCycleRange ({ 96000, 288000 });
+    engine.setCycleEnabled (true);
+
+    engine.resetSessionSettings();
+
+    CHECK (engine.getTempo() == AudioEngine::defaultTempo);
+    CHECK_FALSE (engine.isClickEnabled());
+    CHECK (engine.getMasterGain() == 1.0f);
+    CHECK (engine.getCycleRange().isEmpty());
+    CHECK_FALSE (engine.isCycleEnabled());
+}

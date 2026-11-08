@@ -202,6 +202,18 @@ void TrackPlayer::render (int ringStart, int numSamples)
             if (numChannels == 1)
                 juce::FloatVectorOperations::copy (right, left, length);
 
+            const auto positionInClip = readPosition - clip.timelineStart;
+
+            if (overlapsFade (clip, positionInClip, length))
+            {
+                for (int i = 0; i < length; ++i)
+                {
+                    const auto gain = fadeGain (clip, positionInClip + i);
+                    left[i] *= gain;
+                    right[i] *= gain;
+                }
+            }
+
             fadeAtEdges (left, right, length, clips, readPosition);
         }
         else

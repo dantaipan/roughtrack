@@ -181,6 +181,14 @@ MainComponent::MainComponent (const juce::File& sessionToOpen)
         setCycleEnabled (true);
     };
 
+    timeline->onCycleClear = [this]
+    {
+        setCycleEnabled (false);
+        engine.setCycleRange ({});
+        timeline->repaint();
+        saveSession();
+    };
+
     timeline->onSeek = [this] (juce::int64 position)
     {
         if (engine.getState() == roughtrack::TransportState::stopped)
@@ -807,6 +815,11 @@ void MainComponent::openSession (const juce::File& directory)
     consolePanel.removeAllChannels();
     closeChannelWindows();
     engine.resetChannels();
+
+    // Tempo, click, master level and loop belong to their song. A new session has no
+    // file to load them from, so without this it would keep the last session's, and
+    // autosave would then save them into it.
+    engine.resetSessionSettings();
 
     undoManager.clearUndoHistory();
     insertsNeedKeeping = false;

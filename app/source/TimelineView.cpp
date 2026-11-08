@@ -15,6 +15,7 @@ constexpr double zoomStep = 1.5;
 constexpr double minimumTimelineSeconds = 120.0;
 constexpr double spareSeconds = 30.0;
 constexpr float edgeGrabPixels = 6.0f;
+constexpr float fadeHandleSize = 7.0f;
 constexpr int thumbnailResolution = 512;
 constexpr int rulerLabelSpacing = 70;
 
@@ -301,6 +302,12 @@ TimelineView::Hit TimelineView::hitTestClips (juce::Point<float> point) const
         if (! bounds.contains (point))
             continue;
 
+        // The fade handles sit on the trim edges' corners, so they're found first.
+        if (! isMidi (track))
+            for (const auto zone : { Zone::fadeIn, Zone::fadeOut })
+                if (fadeHandleBounds (track, clips[(size_t) i], zone).expanded (2.0f).contains (point))
+                    return { track, i, zone };
+
         return { track, i, findZone (bounds, point) };
     }
 
@@ -334,6 +341,79 @@ TimelineView::Zone TimelineView::findZone (juce::Rectangle<float> bounds, juce::
     }
 
     return Zone::body;
+}
+
+juce::Rectangle<float> TimelineView::fadeHandleBounds (int track, const roughtrack::Clip& clip, Zone zone) const
+{
+    const auto bounds = clipBounds (track, clip);
+    const auto x = zone == Zone::fadeIn ? sampleToX (clip.timelineStart + clip.fadeIn)
+                                        : sampleToX (clip.timelineEnd() - clip.fadeOut);
+
+    // Kept inside the clip, so a handle with no fade sits in its corner.
+    const auto left = juce::jlimit (bounds.getX(), juce::jmax (bounds.getX(), bounds.getRight() - fadeHandleSize), x - fadeHandleSize / 2.0f);
+    return { left, bounds.getY(), fadeHandleSize, fadeHandleSize };
+}
+
+void TimelineView::paintFades (juce::Graphics& g, int track, const roughtrack::Clip& clip, bool fadesOut, bool showHandles)
+{
+    const auto bounds = clipBounds (track, clip);
+    const auto fadeOut = fadesOut ? clip.fadeOut : (juce::int64) 0;
+
+    // The fade's curve, with what it takes away shaded above it.
+    const auto drawFade = [&] (juce::int64 from, juce::int64 length, bool rising)
+    {
+        const auto x1 = sampleToX (from);
+        const auto x2 = sampleToX (from + length);
+
+        if (x2 - x1 < 1.0f || x2 < 0.0f || x1 > (float) getWidth())
+            return;
+
+        juce::Path curve;
+        const auto steps = juce::jlimit (2, 64, (int) (x2 - x1) / 3);
+
+        for (int i = 0; i <= steps; ++i)
+        {
+            const auto t = (float) i / (float) steps;
+            const auto gain = std::sin (juce::MathConstants<float>::halfPi * (rising ? t : 1.0f - t));
+            const auto point = juce::Point<float> (x1 + t * (x2 - x1), bounds.getBottom() - gain * bounds.getHeight());
+
+            if (i == 0)
+                curve.startNewSubPath (point);
+            else
+                curve.lineTo (point);
+        }
+
+        auto shade = curve;
+        shade.lineTo (x2, bounds.getY());
+        shade.lineTo (x1, bounds.getY());
+        shade.closeSubPath();
+
+        g.saveState();
+        g.reduceClipRegion (bounds.toNearestInt());
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.fillPath (shade);
+        g.setColour (juce::Colours::white.withAlpha (0.7f));
+        g.strokePath (curve, juce::PathStrokeType (1.0f));
+        g.restoreState();
+    };
+
+    if (clip.fadeIn > 0)
+        drawFade (clip.timelineStart, clip.fadeIn, true);
+
+    if (fadeOut > 0)
+        drawFade (clip.timelineEnd() - fadeOut, fadeOut, false);
+
+    if (! showHandles)
+        return;
+
+    for (const auto zone : { Zone::fadeIn, Zone::fadeOut })
+    {
+        const auto handle = fadeHandleBounds (track, clip, zone).reduced (0.5f);
+        g.setColour (juce::Colours::white.withAlpha (0.9f));
+        g.fillRect (handle);
+        g.setColour (juce::Colours::black.withAlpha (0.6f));
+        g.drawRect (handle, 1.0f);
+    }
 }
 
 juce::AudioThumbnail& TimelineView::thumbnailFor (const juce::File& file)
@@ -448,7 +528,9 @@ void TimelineView::paint (juce::Graphics& g)
         const auto& clips = clipsToShow (track);
 
         for (size_t i = 0; i < clips.size(); ++i)
-            paintClip (g, track, clips[i], loopEndOf (track, (int) i), selected.track == track && selected.clip == (int) i);
+            paintClip (g, track, clips[i], loopEndOf (track, (int) i),
+                       selected.track == track && selected.clip == (int) i,
+                       hovered.track == track && hovered.clip == (int) i);
     }
 
     // Where the edge being dragged will land.
@@ -639,7 +721,7 @@ void TimelineView::dragCycle (const juce::MouseEvent& event)
     repaint();
 }
 
-void TimelineView::paintClip (juce::Graphics& g, int track, const roughtrack::Clip& clip, juce::int64 loopEnd, bool isSelected)
+void TimelineView::paintClip (juce::Graphics& g, int track, const roughtrack::Clip& clip, juce::int64 loopEnd, bool isSelected, bool isHovered)
 {
     const auto bounds = clipBounds (track, clip);
     const auto extent = bounds.withRight (juce::jmax (bounds.getRight(), sampleToX (toSamples (track, loopEnd))));
@@ -647,8 +729,10 @@ void TimelineView::paintClip (juce::Graphics& g, int track, const roughtrack::Cl
     if (extent.getRight() < 0.0f || extent.getX() > (float) getWidth())
         return;
 
+    const auto repeats = clip.loopsToNext && clip.length > 0 && loopEnd > clip.timelineEnd();
+
     // The repeats look like the clip, dimmed, each marked where it starts over.
-    if (clip.loopsToNext && clip.length > 0)
+    if (repeats)
     {
         for (auto start = clip.timelineEnd(); start < loopEnd; start += clip.length)
         {
@@ -663,12 +747,22 @@ void TimelineView::paintClip (juce::Graphics& g, int track, const roughtrack::Cl
 
             paintClipBody (g, track, repeat, true);
 
+            // A loop fades out once, at the end of its last repeat.
+            if (! isMidi (track) && repeat.timelineEnd() >= loopEnd)
+            {
+                repeat.fadeIn = 0;
+                paintFades (g, track, roughtrack::setClipFades ({ repeat }, 0, 0, clip.fadeOut)[0], true, false);
+            }
+
             g.setColour (juce::Colours::white.withAlpha (0.35f));
             g.fillRect (repeatBounds.getX(), repeatBounds.getY() + 3.0f, 1.0f, repeatBounds.getHeight() - 6.0f);
         }
     }
 
     paintClipBody (g, track, clip, false);
+
+    if (! isMidi (track))
+        paintFades (g, track, clip, ! repeats, (isSelected || isHovered) && clip.file.existsAsFile());
 
     g.setColour (isSelected ? juce::Colours::orange : juce::Colours::black.withAlpha (0.5f));
     g.drawRoundedRectangle (extent, 3.0f, isSelected ? 2.0f : 1.0f);
@@ -708,6 +802,11 @@ void TimelineView::paintClipBody (juce::Graphics& g, int track, const roughtrack
         return;
 
     auto label = bounds.reduced (5.0f, 2.0f);
+
+    // The fade-in handle sits at the top left, so the name starts after it.
+    if (! isMidi (track))
+        label.setLeft (juce::jmax (label.getX(), fadeHandleBounds (track, clip, Zone::fadeIn).getRight() + 3.0f));
+
     g.setColour (juce::Colours::white.withAlpha (0.8f));
 
     if (clip.loopsToNext)
@@ -903,12 +1002,47 @@ void TimelineView::mouseMove (const juce::MouseEvent& event)
 
     setMouseCursor (hit.isClip() && hit.zone != Zone::body ? juce::MouseCursor::LeftRightResizeCursor
                                                            : juce::MouseCursor::NormalCursor);
+
+    // The fade handles show on the clip under the mouse.
+    const auto over = hit.isClip() ? Hit { hit.track, hit.clip, Zone::body } : Hit {};
+
+    if (over.track != hovered.track || over.clip != hovered.clip)
+    {
+        hovered = over;
+        repaint();
+    }
+}
+
+void TimelineView::mouseExit (const juce::MouseEvent&)
+{
+    if (hovered.isClip())
+    {
+        hovered = {};
+        repaint();
+    }
 }
 
 void TimelineView::mouseDown (const juce::MouseEvent& event)
 {
     if (event.y < rulerHeight)
     {
+        // Right-clicking the ruler offers to take the loop away, so it isn't shown when unwanted.
+        if (event.mods.isPopupMenu())
+        {
+            if (engine.getCycleRange().isEmpty())
+                return;
+
+            juce::PopupMenu menu;
+            menu.addItem ("Clear Loop", [safeThis = juce::Component::SafePointer (this)]
+            {
+                if (safeThis != nullptr && safeThis->onCycleClear != nullptr)
+                    safeThis->onCycleClear();
+            });
+
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ juce::Desktop::getMousePosition(), juce::Desktop::getMousePosition() }));
+            return;
+        }
+
         // A press on the bar numbers might be the start of marking a loop, so it waits to
         // see. One on the time above moves the playhead at once.
         if (event.y >= rulerHeight / 2 && ! event.mods.isPopupMenu())
@@ -989,6 +1123,10 @@ void TimelineView::mouseDrag (const juce::MouseEvent& event)
                     partsPreview = part.loopsToNext ? partsOriginal : roughtrack::trimPartEnd (partsOriginal, dragging.clip, part.endBar() + bars);
                 }
                 break;
+
+            case Zone::fadeIn:
+            case Zone::fadeOut:
+                break;
         }
 
         const auto& moved = partsPreview[(size_t) dragging.clip];
@@ -1004,6 +1142,15 @@ void TimelineView::mouseDrag (const juce::MouseEvent& event)
     // The edge being dragged is the one to show. A trim can stop short of where it's aimed,
     // so it's read back from the result; a loop's end lands exactly where it was aimed.
     const auto& moved = dragPreview[(size_t) dragging.clip];
+
+    // A fade shows itself as it's dragged, so there's no landing line.
+    if (dragging.zone == Zone::fadeIn || dragging.zone == Zone::fadeOut)
+    {
+        landingSample = -1;
+        repaint();
+        return;
+    }
+
     const auto loopEndDragged = dragging.zone == Zone::end && dragOriginal[(size_t) dragging.clip].loopsToNext;
 
     const auto edge = loopEndDragged ? roughtrack::snapToGrid (dragLoopEnd + distance, grid, unitsPerBeat (dragging.track))
@@ -1045,6 +1192,13 @@ roughtrack::ClipList TimelineView::dragClip (const roughtrack::ClipList& clips,
                 return distance != 0 ? roughtrack::bakeLoop (clips, index, snapped (loopEnd + distance)) : clips;
 
             return roughtrack::trimClipEnd (clips, index, snapped (clip.timelineEnd() + distance));
+
+        // Fades are usually short, so they're set freely rather than on the grid.
+        case Zone::fadeIn:
+            return roughtrack::setClipFades (clips, index, clip.fadeIn + distance, clip.fadeOut);
+
+        case Zone::fadeOut:
+            return roughtrack::setClipFades (clips, index, clip.fadeIn, clip.fadeOut - distance);
     }
 
     return clips;
@@ -1078,7 +1232,13 @@ void TimelineView::mouseUp (const juce::MouseEvent&)
     landingSample = -1;
 
     if (dragPreview != dragOriginal && onEdit != nullptr)
-        onEdit (dragging.track, dragPreview, dragging.zone == Zone::body ? "Move Clip" : "Trim Clip");
+    {
+        const auto* name = dragging.zone == Zone::body      ? "Move Clip"
+                           : dragging.zone == Zone::fadeIn  ? "Fade In"
+                           : dragging.zone == Zone::fadeOut ? "Fade Out"
+                                                            : "Trim Clip";
+        onEdit (dragging.track, dragPreview, name);
+    }
 
     if (partsPreview != partsOriginal && onDrumEdit != nullptr)
         onDrumEdit (dragging.track, partsPreview, dragging.zone == Zone::body ? "Move Part" : "Trim Part");

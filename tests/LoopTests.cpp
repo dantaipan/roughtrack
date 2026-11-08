@@ -244,3 +244,27 @@ TEST_CASE ("Loops are saved with the session, and old sessions don't loop")
     REQUIRE (older.getClips (0).size() == 1);
     CHECK_FALSE (older.getClips (0)[0].loopsToNext);
 }
+
+TEST_CASE ("A loop fades in once at its start and out once at its end")
+{
+    auto clip = makeClip (0, 1000, true);
+    clip.fadeIn = 100;
+    clip.fadeOut = 300;
+
+    const auto played = expandLoops ({ clip, makeClip (3200, 100) }, 100000);
+
+    REQUIRE (played.size() == 5);
+    CHECK (played[0].fadeIn == 100);
+    CHECK (played[0].fadeOut == 0);
+    CHECK (played[1].fadeIn == 0);
+    CHECK (played[1].fadeOut == 0);
+    CHECK (played[2].fadeOut == 0);
+
+    // The last pass is 200 long, so its fade-out is too.
+    CHECK (played[3].length == 200);
+    CHECK (played[3].fadeIn == 0);
+    CHECK (played[3].fadeOut == 200);
+
+    const auto baked = bakeLoop ({ clip, makeClip (3200, 100) }, 0, 3200);
+    CHECK (baked == played);
+}

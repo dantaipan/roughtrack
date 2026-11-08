@@ -1,5 +1,8 @@
 #include "roughtrack/Clip.h"
 
+#include <cmath>
+#include <numbers>
+
 namespace roughtrack
 {
 
@@ -20,6 +23,12 @@ bool isSeamless (const ClipList& clips, juce::int64 edge)
     const auto& b = clips[(size_t) after];
 
     return a.file == b.file && a.fileOffset - a.timelineStart == b.fileOffset - b.timelineStart;
+}
+/** Fades stay within the clip, the fade-in winning if they'd overlap. */
+void clampFades (Clip& clip)
+{
+    clip.fadeIn = juce::jlimit<juce::int64> (0, juce::jmax<juce::int64> (0, clip.length), clip.fadeIn);
+    clip.fadeOut = juce::jlimit<juce::int64> (0, juce::jmax<juce::int64> (0, clip.length - clip.fadeIn), clip.fadeOut);
 }
 } // namespace
 
@@ -93,6 +102,7 @@ ClipList trimClipStart (ClipList clips, int index, juce::int64 newTimelineStart)
     clip.timelineStart = start;
     clip.fileOffset += change;
     clip.length -= change;
+    clampFades (clip);
     return clips;
 }
 
@@ -104,6 +114,7 @@ ClipList trimClipEnd (ClipList clips, int index, juce::int64 newTimelineEnd)
     const auto requested = newTimelineEnd - clip.timelineStart;
 
     clip.length = juce::jlimit (juce::jmin (minimumClipLength, longest), longest, requested);
+    clampFades (clip);
     return clips;
 }
 
@@ -120,8 +131,15 @@ ClipList splitClip (ClipList clips, int index, juce::int64 position)
     second.timelineStart = position;
     second.fileOffset += firstLength;
     second.length -= firstLength;
+    second.fadeIn = 0;
+    clampFades (second);
 
-    clips[(size_t) index].length = firstLength;
+    // Each piece keeps the fade on its outer end.
+    auto& firstPiece = clips[(size_t) index];
+    firstPiece.length = firstLength;
+    firstPiece.fadeOut = 0;
+    clampFades (firstPiece);
+
     clips.insert (clips.begin() + index + 1, second);
     return clips;
 }
@@ -130,6 +148,35 @@ ClipList removeClip (ClipList clips, int index)
 {
     clips.erase (clips.begin() + index);
     return clips;
+}
+
+ClipList setClipFades (ClipList clips, int index, juce::int64 fadeIn, juce::int64 fadeOut)
+{
+    auto& clip = clips[(size_t) index];
+    clip.fadeIn = fadeIn;
+    clip.fadeOut = fadeOut;
+    clampFades (clip);
+    return clips;
+}
+
+float fadeGain (const Clip& clip, juce::int64 positionInClip) noexcept
+{
+    constexpr auto quarter = std::numbers::pi / 2.0;
+
+    if (positionInClip < clip.fadeIn)
+        return (float) std::sin (quarter * ((double) positionInClip + 0.5) / (double) clip.fadeIn);
+
+    const auto untilEnd = clip.length - positionInClip;
+
+    if (untilEnd <= clip.fadeOut && clip.fadeOut > 0)
+        return (float) std::sin (quarter * ((double) untilEnd - 0.5) / (double) clip.fadeOut);
+
+    return 1.0f;
+}
+
+bool overlapsFade (const Clip& clip, juce::int64 positionInClip, juce::int64 length) noexcept
+{
+    return positionInClip < clip.fadeIn || positionInClip + length > clip.length - clip.fadeOut;
 }
 
 } // namespace roughtrack

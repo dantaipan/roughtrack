@@ -20,11 +20,16 @@ juce::int64 findNextStart (const List& items, int index, StartOf startOf)
     return next;
 }
 
-/** Copies of a clip laid end to end from its own end up to a given end, the last cut short. */
+/** Copies of a clip laid end to end from its own end up to a given end, the last cut
+    short. The clip itself is already the last item in the result. A loop fades in once
+    and out once, so only the clip keeps its fade-in and only the last copy fades out.
+*/
 void addRepeats (ClipList& result, const Clip& clip, juce::int64 end)
 {
-    if (clip.length <= 0)
+    if (clip.length <= 0 || clip.timelineEnd() >= end)
         return;
+
+    result.back().fadeOut = 0;
 
     for (auto start = clip.timelineEnd(); start < end; start += clip.length)
     {
@@ -32,8 +37,13 @@ void addRepeats (ClipList& result, const Clip& clip, juce::int64 end)
         copy.timelineStart = start;
         copy.length = juce::jmin (clip.length, end - start);
         copy.loopsToNext = false;
+        copy.fadeIn = 0;
+        copy.fadeOut = 0;
         result.push_back (copy);
     }
+
+    const auto last = (int) result.size() - 1;
+    result = setClipFades (std::move (result), last, 0, clip.fadeOut);
 }
 
 } // namespace
@@ -100,6 +110,7 @@ ClipList bakeLoop (const ClipList& clips, int index, juce::int64 newEnd)
     auto first = clip;
     first.length = juce::jlimit ((juce::int64) 1, clip.length, newEnd - clip.timelineStart);
     baked.push_back (first);
+    baked = setClipFades (std::move (baked), 0, first.fadeIn, first.fadeOut);
 
     addRepeats (baked, clip, newEnd);
 
