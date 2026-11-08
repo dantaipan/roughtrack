@@ -19,7 +19,17 @@ FetchContent_Declare(NeuralAmpModelerCore
     GIT_SUBMODULES Dependencies/eigen
     SOURCE_SUBDIR no-cmake-project)
 
-FetchContent_MakeAvailable(JUCE Catch2 NeuralAmpModelerCore)
+# RoughStomp, only for the look the two apps share (ui/rs_ui/Family.h), which
+# the app compiles in. SOURCE_SUBDIR points nowhere and submodules are
+# skipped, so none of its plugins or its own copy of JUCE come along. To pick
+# up a change to the shared look, push it to RoughStomp and move this pin.
+FetchContent_Declare(RoughStomp
+    GIT_REPOSITORY https://github.com/dantaipan/roughstomp.git
+    GIT_TAG c8ce401b6a7b4711da890d1d014a73ac63fdb63b
+    GIT_SUBMODULES ""
+    SOURCE_SUBDIR no-cmake-project)
+
+FetchContent_MakeAvailable(JUCE Catch2 NeuralAmpModelerCore RoughStomp)
 
 # JUCE modules are INTERFACE libraries whose sources compile into every target
 # that links them. Compiling them once here stops the engine, app and tests each

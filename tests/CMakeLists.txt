@@ -24,7 +24,7 @@ add_executable(roughtrack_tests
     TimelineViewTests.cpp
     TunerTests.cpp
     UpdateTests.cpp
-    ../app/source/ConsoleLookAndFeel.cpp
+    ${roughstomp_SOURCE_DIR}/ui/src/Family.cpp
     ../app/source/ConsolePanel.cpp
     ../app/source/ControllerInput.cpp
     ../app/source/GroovePreview.cpp
@@ -36,7 +36,7 @@ add_executable(roughtrack_tests
     ../app/source/Updates.cpp
     ../app/source/VuMeter.cpp)
 
-target_include_directories(roughtrack_tests PRIVATE ../app/source)
+target_include_directories(roughtrack_tests PRIVATE ../app/source ${roughstomp_SOURCE_DIR}/ui/include)
 
 target_link_libraries(roughtrack_tests PRIVATE
     roughtrack_engine

@@ -12,7 +12,6 @@ juce_add_binary_data(RoughTrackAssets SOURCES "${CMAKE_SOURCE_DIR}/resources/ico
 target_sources(RoughTrack PRIVATE
     source/AboutWindow.cpp
     source/ChannelWindow.cpp
-    source/ConsoleLookAndFeel.cpp
     source/ConsolePanel.cpp
     source/ControllerInput.cpp
     source/GroovePreview.cpp
@@ -28,6 +27,10 @@ target_sources(RoughTrack PRIVATE
     source/Updates.cpp
     source/UpdateWindow.cpp
     source/VuMeter.cpp)
+
+# The look shared with RoughStomp (see cmake/Dependencies.cmake)
+target_sources(RoughTrack PRIVATE ${roughstomp_SOURCE_DIR}/ui/src/Family.cpp)
+target_include_directories(RoughTrack PRIVATE ${roughstomp_SOURCE_DIR}/ui/include)
 
 target_compile_definitions(RoughTrack PRIVATE
     ROUGHTRACK_VERSION="${PROJECT_VERSION}")
