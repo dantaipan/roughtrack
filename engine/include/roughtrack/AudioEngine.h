@@ -50,6 +50,7 @@ struct SavedInsert
     int track = 0;
     int slot = 0;
     bool bypassed = false;
+    bool beforeAmp = false;
     juce::PluginDescription description;
     juce::MemoryBlock state;
 };
@@ -269,6 +270,9 @@ public:
     juce::AudioPluginInstance* getInsert (int track, int slot) const;
     void setInsertBypassed (int track, int slot, bool shouldBypass);
     bool isInsertBypassed (int track, int slot) const;
+    /** Puts a plugin ahead of the track's amp, like a pedal, or back after it. */
+    void setInsertBeforeAmp (int track, int slot, bool shouldBeBeforeAmp);
+    bool isInsertBeforeAmp (int track, int slot) const;
     int getInsertLatency (int track) const;
     std::unique_ptr<juce::XmlElement> createInsertsXml() const;
 

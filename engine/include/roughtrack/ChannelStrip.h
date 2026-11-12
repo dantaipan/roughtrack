@@ -41,8 +41,8 @@ struct ParameterInfo
 
 const ParameterInfo& getParameterInfo (ChannelParameter);
 
-/** The built-in processing on one track. The amp runs before plugin inserts and
-    the EQ and compressor after them, so a plugin can sit between amp and mix.
+/** The built-in processing on one track. Each plugin insert runs either before
+    the amp, like a pedal, or between the amp and the EQ and compressor.
     Nothing here adds latency, so none of it affects delay compensation.
 
     Parameters can change from any thread at any time. prepare() and the amp and

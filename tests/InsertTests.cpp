@@ -326,3 +326,104 @@ TEST_CASE ("A new device prepares plugins already in place")
     CHECK (raw->numPrepares == preparesBefore + 1);
     CHECK (raw->getSampleRate() == 44100.0);
 }
+
+namespace
+{
+
+const juce::File namExamples (ROUGHTRACK_NAM_EXAMPLES);
+
+/** Plays a tone into track 0 through an amp capture, with an optional
+    level-changing plugin in slot 0, and returns what comes out. */
+std::vector<float> throughAmp (float inputLevel, float pluginGain, bool hasPlugin, bool beforeAmp)
+{
+    Rig rig;
+    REQUIRE (rig.engine.loadAmp (0, namExamples.getChildFile ("wavenet.nam")).wasOk());
+
+    if (hasPlugin)
+    {
+        REQUIRE (rig.engine.setInsert (0, 0, std::make_unique<TestPlugin> (0, pluginGain)).wasOk());
+        rig.engine.setInsertBeforeAmp (0, 0, beforeAmp);
+    }
+
+    rig.engine.setTrackArmed (0, true);
+    rig.engine.setTrackMonitoring (0, true);
+
+    const float* inputs[] { rig.input.data() };
+
+    for (int block = 0; block < 100; ++block)
+    {
+        for (int i = 0; i < blockSize; ++i)
+            rig.input[(size_t) i] = inputLevel * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 220.0 * (block * blockSize + i) / sampleRate);
+
+        float* outputs[] { rig.left.data(), rig.right.data() };
+        rig.engine.processBlock (inputs, 1, outputs, 2, blockSize);
+        rig.outLeft.insert (rig.outLeft.end(), rig.left.begin(), rig.left.end());
+    }
+
+    return rig.outLeft;
+}
+
+float largestDifference (const std::vector<float>& a, const std::vector<float>& b, float scaleB = 1.0f)
+{
+    auto worst = 0.0f;
+
+    for (size_t i = 0; i < a.size(); ++i)
+        worst = juce::jmax (worst, std::abs (a[i] - b[i] * scaleB));
+
+    return worst;
+}
+
+} // namespace
+
+TEST_CASE ("A plugin before the amp feeds it, like a pedal")
+{
+    // The amp is nonlinear, so turning down before it sounds different from
+    // turning down after it. That difference shows where the plugin ran.
+    const auto before = throughAmp (0.5f, 0.25f, true, true);
+    const auto after = throughAmp (0.5f, 0.25f, true, false);
+
+    const auto quieterIntoAmp = throughAmp (0.125f, 1.0f, false, false);
+    const auto ampThenQuieter = throughAmp (0.5f, 1.0f, false, false);
+
+    CHECK (largestDifference (before, quieterIntoAmp) < 1.0e-5f);
+    CHECK (largestDifference (after, ampThenQuieter, 0.25f) < 1.0e-5f);
+    CHECK (largestDifference (before, after) > 0.01f);
+}
+
+TEST_CASE ("A plugin starts after the amp, and moving it changes no latency")
+{
+    Rig rig;
+
+    REQUIRE (rig.engine.setInsert (0, 1, std::make_unique<TestPlugin> (300, 1.0f)).wasOk());
+    CHECK_FALSE (rig.engine.isInsertBeforeAmp (0, 1));
+
+    rig.engine.setInsertBeforeAmp (0, 1, true);
+    CHECK (rig.engine.isInsertBeforeAmp (0, 1));
+    CHECK (rig.engine.getInsertLatency (0) == 300);
+
+    // Instruments have no amp to sit before
+    rig.engine.setInsertBeforeAmp (0, instrumentSlot, true);
+    CHECK_FALSE (rig.engine.isInsertBeforeAmp (0, instrumentSlot));
+}
+
+TEST_CASE ("Before Amp comes back with the session, and older sessions keep plugins after the amp")
+{
+    Rig rig;
+
+    REQUIRE (rig.engine.setInsert (1, 0, std::make_unique<TestPlugin> (0, 1.0f)).wasOk());
+    REQUIRE (rig.engine.setInsert (1, 2, std::make_unique<TestPlugin> (0, 1.0f)).wasOk());
+    rig.engine.setInsertBeforeAmp (1, 0, true);
+
+    auto xml = rig.engine.createInsertsXml();
+    const auto saved = parseSavedInserts (*xml);
+
+    REQUIRE (saved.size() == 2);
+    CHECK (saved[0].beforeAmp);
+    CHECK_FALSE (saved[1].beforeAmp);
+
+    for (auto* element : xml->getChildIterator())
+        element->removeAttribute ("beforeAmp");
+
+    for (const auto& insert : parseSavedInserts (*xml))
+        CHECK_FALSE (insert.beforeAmp);
+}

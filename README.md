@@ -64,7 +64,7 @@ An armed track's meter shows what's arriving at its input, whether or not Mon is
 
 ## Amps and effects
 
-Each track's **Channel** button opens its amp, cabinet, EQ, compressor and sends. The signal runs amp and cabinet, plugin inserts, EQ, compressor, fader, then the sends. **Effects** holds the reverb and delay that every track shares. None of this adds latency, and takes always stay dry, so any of it can change after recording.
+Each track's **Channel** button opens its amp, cabinet, EQ, compressor and sends. The signal runs amp and cabinet, plugin inserts, EQ, compressor, fader, then the sends. To put a plugin in front of the amp, like a pedal, right-click its insert and choose **Before Amp**; the slot turns amber. Plugins before the amp run in slot order too, so an overdrive in slot 1 and a reverb in slot 2 can sit either side of the amp. **Effects** holds the reverb and delay that every track shares. None of this adds latency, and takes always stay dry, so any of it can change after recording.
 
 <img src="docs/screenshots/channel.png" alt="A channel with an amp capture, cabinet, EQ, compressor and sends" width="480">
 

@@ -363,8 +363,9 @@ void AudioEngine::processTrack (Track& track,
     }
 
     // Everything keeps running on a muted track so tails and timing carry on.
+    track.inserts.process (left, right, numSamples, InsertStage::beforeAmp);
     track.channel.processAmp (left, right, numSamples);
-    track.inserts.process (left, right, numSamples);
+    track.inserts.process (left, right, numSamples, InsertStage::afterAmp);
     track.channel.processChannel (left, right, numSamples);
 
     if (isOutputSilenced (track, anySoloed))
@@ -1668,6 +1669,17 @@ bool AudioEngine::isInsertBypassed (int track, int slot) const
     return slot != instrumentSlot && tracks[(size_t) track].inserts.isBypassed (slot);
 }
 
+void AudioEngine::setInsertBeforeAmp (int track, int slot, bool shouldBeBeforeAmp)
+{
+    if (slot != instrumentSlot)
+        tracks[(size_t) track].inserts.setStage (slot, shouldBeBeforeAmp ? InsertStage::beforeAmp : InsertStage::afterAmp);
+}
+
+bool AudioEngine::isInsertBeforeAmp (int track, int slot) const
+{
+    return slot != instrumentSlot && tracks[(size_t) track].inserts.getStage (slot) == InsertStage::beforeAmp;
+}
+
 int AudioEngine::getInsertLatency (int track) const
 {
     return tracks[(size_t) track].inserts.getLatencySamples();
@@ -1693,6 +1705,7 @@ std::unique_ptr<juce::XmlElement> AudioEngine::createInsertsXml() const
             element->setAttribute ("track", track);
             element->setAttribute ("slot", slot);
             element->setAttribute ("bypassed", isInsertBypassed (track, slot));
+            element->setAttribute ("beforeAmp", isInsertBeforeAmp (track, slot));
             element->setAttribute ("state", pluginState.toBase64Encoding());
             element->addChildElement (instance->getPluginDescription().createXml().release());
         }
@@ -1711,6 +1724,7 @@ std::vector<SavedInsert> parseSavedInserts (const juce::XmlElement& xml)
         insert.track = element->getIntAttribute ("track", -1);
         insert.slot = element->getIntAttribute ("slot", -1);
         insert.bypassed = element->getBoolAttribute ("bypassed");
+        insert.beforeAmp = element->getBoolAttribute ("beforeAmp");  // absent in older sessions: after the amp
         insert.state.fromBase64Encoding (element->getStringAttribute ("state"));
 
         const auto* description = element->getFirstChildElement();

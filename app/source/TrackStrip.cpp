@@ -177,7 +177,7 @@ void TrackStrip::showChannelActive (bool hasAmp)
                              hasAmp ? console::blue.darker (0.3f) : getLookAndFeel().findColour (juce::TextButton::buttonColourId));
 }
 
-void TrackStrip::showInsert (int slot, const juce::String& pluginName, bool bypassed)
+void TrackStrip::showInsert (int slot, const juce::String& pluginName, bool bypassed, bool beforeAmp)
 {
     auto& button = insertButtons[(size_t) slot];
     const auto isEmpty = pluginName.isEmpty();
@@ -185,11 +185,14 @@ void TrackStrip::showInsert (int slot, const juce::String& pluginName, bool bypa
     const auto isInstrument = slot == roughtrack::instrumentSlot;
 
     button.setButtonText (isEmpty ? juce::String (isInstrument ? "+ Instrument" : "+ Insert") : pluginName);
-    button.setTooltip (isEmpty ? (isInstrument ? "Choose an instrument" : "Add a plugin") : pluginName + ". Click to open, right-click for options");
+    button.setTooltip (isEmpty ? (isInstrument ? "Choose an instrument" : "Add a plugin")
+                               : pluginName + (beforeAmp ? ", before the amp" : "") + ". Click to open, right-click for options");
     button.setAlpha (isEmpty || bypassed ? 0.5f : 1.0f);
+
+    // Amber marks a plugin before the amp, like a pedal; blue is after it
+    const auto active = beforeAmp ? console::amber.darker (0.6f) : console::blue.darker (0.3f);
     button.setColour (juce::TextButton::buttonColourId,
-                      isEmpty || bypassed ? getLookAndFeel().findColour (juce::TextButton::buttonColourId)
-                                          : console::blue.darker (0.3f));
+                      isEmpty || bypassed ? getLookAndFeel().findColour (juce::TextButton::buttonColourId) : active);
 }
 
 void TrackStrip::setUpToggle (juce::TextButton& button, juce::Colour onColour)
