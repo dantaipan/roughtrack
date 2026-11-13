@@ -92,6 +92,12 @@ void AudioEngine::setSessionDirectory (const juce::File& directory)
     sessionDirectory = directory;
 }
 
+// Known issue (found in RoughTrack Swift, 2026-11-12): while a device is changing,
+// CoreAudio can report a sample rate of 0. Passed straight on to prepare(), it sends each
+// channel's cabinet juce::dsp::Convolution into an endless resampling loop on the message
+// thread, and the app hangs, even with no cabinet loaded. RoughTrack Swift keeps the last
+// real rate when one can't be real (between 8 kHz and 768 kHz), at the top of its prepare(),
+// with a test in AudioEngineTests.cpp; the same guard would fix it here.
 void AudioEngine::prepare (double sampleRate, int maximumBlockSize)
 {
     const auto capacity = juce::jmax (minimumBufferCapacity, maximumBlockSize);
