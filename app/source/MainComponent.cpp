@@ -2161,7 +2161,9 @@ void MainComponent::updateCheckFinished (std::optional<updates::Release> release
     if (release.has_value())
         settings->setValue ("lastUpdateCheck", juce::String (juce::Time::currentTimeMillis()));
 
-    if (release.has_value() && updates::shouldOffer (*release, ROUGHTRACK_VERSION, settings->getValue ("skippedVersion"), isManual))
+    const auto canRun = updates::canRunSwiftRoughTrack();
+
+    if (release.has_value() && canRun && updates::shouldOffer (*release, ROUGHTRACK_VERSION, settings->getValue ("skippedVersion"), isManual))
     {
         showUpdateWindow (updateWindow, *release, ROUGHTRACK_VERSION, [this, version = release->version]
                           {
@@ -2174,10 +2176,15 @@ void MainComponent::updateCheckFinished (std::optional<updates::Release> release
     if (! isManual)
         return;
 
+    // The SwiftUI RoughTrack can't run here, so this version stays the latest for this Mac.
+    const auto notForThisMac = release.has_value() && ! canRun;
+
     juce::AlertWindow::showAsync (juce::MessageBoxOptions()
                                       .withIconType (release.has_value() ? juce::MessageBoxIconType::InfoIcon : juce::MessageBoxIconType::WarningIcon)
                                       .withTitle (release.has_value() ? "You're up to date" : "Couldn't check for updates")
-                                      .withMessage (release.has_value() ? "RoughTrack " ROUGHTRACK_VERSION " is the latest version." : error)
+                                      .withMessage (notForThisMac ? "RoughTrack " ROUGHTRACK_VERSION " is the latest version for this Mac. RoughTrack now carries on as "
+                                                                    "a SwiftUI app, which needs macOS 14 or later on Apple Silicon."
+                                                  : release.has_value() ? "RoughTrack " ROUGHTRACK_VERSION " is the latest version." : error)
                                       .withButton ("OK"),
                                   nullptr);
 }

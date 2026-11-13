@@ -83,6 +83,11 @@ int findClipAt (const ClipList& clips, juce::int64 position)
     return -1;
 }
 
+// Known issue (found in RoughTrack Swift, 2026-11-12): this only stops a clip vanishing,
+// so a drag can leave most of a clip before zero, where it can never play, like a hidden
+// trim. trimClipStart can also reach before zero when the clip has earlier audio to
+// reveal. RoughTrack Swift clamps both at zero in its drag rules (core/source/ClipDrag.cpp,
+// with tests in ClipDragTests.cpp); the same jmax (0, ...) would fix TimelineView::dragClip here.
 ClipList moveClip (ClipList clips, int index, juce::int64 newTimelineStart)
 {
     auto& clip = clips[(size_t) index];

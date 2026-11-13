@@ -114,10 +114,19 @@ std::optional<Release> parseLatestRelease (const juce::var& json)
 
 bool shouldOffer (const Release& release, const juce::String& currentVersion, const juce::String& skippedVersion, bool isManual)
 {
-    if (! isNewerVersion (release.version, currentVersion))
-        return false;
-
+    // The SwiftUI RoughTrack started again at 0.1, so its releases count as newer than
+    // this app's 0.11 whatever their numbers.
+    juce::ignoreUnused (currentVersion);
     return isManual || release.version != skippedVersion;
+}
+
+bool canRunSwiftRoughTrack()
+{
+   #if JUCE_ARM
+    return juce::SystemStats::getOperatingSystemType() >= juce::SystemStats::MacOS_14;
+   #else
+    return false;
+   #endif
 }
 
 std::vector<NoteRun> notesToRuns (const juce::String& markdown)
