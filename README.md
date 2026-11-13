@@ -1,5 +1,12 @@
 # RoughTrack
 
+> **Development has moved to the SwiftUI RoughTrack:
+> [dantaipan/roughtrack-swift](https://github.com/dantaipan/roughtrack-swift).** It uses the
+> same engine with a new, simpler interface, opens the same sessions and keeps the same
+> settings, and its releases start again at 0.1. This JUCE version stays here as it is, for a
+> possible Windows port. Its update check looks for the SwiftUI releases on Macs that can
+> run them (macOS 14 or later on Apple Silicon).
+
 A simplified multitrack DAW for macOS. Record anything through your audio interface, play MIDI instruments from a keyboard, lay down drums from real drummers' grooves, mix on a console with amps and effects, and bounce a mixdown or stems. Start with one track and add more as you need them, up to 24.
 
 **[Download RoughTrack for macOS](https://github.com/dantaipan/roughtrack/releases/latest)**: macOS 13 or later, Apple Silicon or Intel, signed and notarized.

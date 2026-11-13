@@ -80,9 +80,16 @@ TEST_CASE ("A skipped version is only offered when asked for")
     release.version = "v0.11.0";
     CHECK (shouldOffer (release, "0.9.0", "v0.10.0", false));
 
-    // Nothing is offered that isn't newer.
-    release.version = "v0.9.0";
-    CHECK_FALSE (shouldOffer (release, "0.9.0", {}, true));
+}
+
+TEST_CASE ("The SwiftUI RoughTrack's releases are offered though their numbers start again")
+{
+    Release release;
+    release.version = "v0.1.3";
+
+    CHECK (shouldOffer (release, "0.11.0", {}, false));
+    CHECK_FALSE (shouldOffer (release, "0.11.0", "v0.1.3", false));
+    CHECK (shouldOffer (release, "0.11.0", "v0.1.3", true));
 }
 
 TEST_CASE ("Release notes read cleanly in the app")

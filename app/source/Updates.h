@@ -11,7 +11,8 @@
 namespace updates
 {
 
-inline constexpr auto latestReleaseUrl = "https://api.github.com/repos/dantaipan/roughtrack/releases/latest";
+/** RoughTrack carries on as a SwiftUI app, so updates come from its releases. */
+inline constexpr auto latestReleaseUrl = "https://api.github.com/repos/dantaipan/roughtrack-swift/releases/latest";
 
 struct Release
 {
@@ -27,10 +28,15 @@ bool isNewerVersion (const juce::String& candidate, const juce::String& current)
 /** Reads GitHub's answer for the latest release, or nothing if it isn't one. */
 std::optional<Release> parseLatestRelease (const juce::var& json);
 
-/** Whether to tell the player about a release. Automatic checks leave out a version they
-    chose to skip; asking from the menu always shows it.
+/** Whether to tell the player about a release. Releases come from the SwiftUI RoughTrack,
+    which carries on from this one with its own numbering from 0.1, so each one is offered
+    whatever its number. Automatic checks leave out a version they chose to skip; asking
+    from the menu always shows it.
 */
 bool shouldOffer (const Release&, const juce::String& currentVersion, const juce::String& skippedVersion, bool isManual);
+
+/** The SwiftUI RoughTrack needs macOS 14 or later on Apple Silicon. */
+bool canRunSwiftRoughTrack();
 
 /** A stretch of release notes in one style, ready to show. */
 struct NoteRun
